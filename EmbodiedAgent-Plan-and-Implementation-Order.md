@@ -436,7 +436,7 @@ How to read a card: hand the whole card to one agent session. Steps are run one 
 5. Add a `config.toml` (laptop IP, port, model IDs, caps) and a `.env.example` for API keys. Check: the brain reads both at start and prints which keys are present, never their values.
 6. Add pytest and one passing test. Check: `pytest` is green.
 7. Add an import-lint test that fails if anything under `brain/` except `brain/body/phone.py` mentions Android or ARCore. Check: adding the word to another file makes the test fail.
-8. Write `docs/migration.md` and a `tools/export_data` command for moving the project off this company laptop: it bundles `data/`, `.env` and the config into one encrypted archive for Jeff's own machine, lists how to re-create or export the registry key, and ends with a secure-delete checklist for the old machine. Check: export on this machine, restore on a second folder or machine, and the brain starts with the same people, places and memory.
+8. Write `docs/migration.md` and a `tools/migrate.py` command (export and restore) for moving the project off this company laptop: it bundles `data/`, `.env` and the config into one encrypted archive for Jeff's own machine, lists how to re-create or export the registry key, and ends with a secure-delete checklist for the old machine. Check: export on this machine, restore on a second folder or machine, and the brain starts there with the same config and data. The "same people, places and memory" part can only be checked once the registry (P3-01) and memory (P4-08) exist, so re-run this check when they do.
 
 **Deliverables.** Repo, config loader, test runner, boundary lint.
 

@@ -1,0 +1,24 @@
+# Embodied Agent brain configuration. No secrets here; API keys go in .env.
+
+[network]
+# The phone reaches the brain through `adb reverse`, so it connects to localhost.
+host = "127.0.0.1"
+port = 8765
+
+[models]
+live_conversation = "claude-haiku-5-5"
+careful_looking = "claude-sonnet-5-5"
+offline = "claude-opus-5-5"
+
+[caps]
+# Provisional until Jeff sets the monthly ceiling (open question 5). Enforced in card P1-04.
+session_usd = 0.50
+daily_usd = 2.00
+
+[egress]
+# Default deny: the only outside destinations the brain may contact. Jeff edits this list.
+# The speech vendor is added here when chosen (card P2-04).
+allowed_hosts = ["api.anthropic.com"]
+
+[paths]
+data_dir = "data"
