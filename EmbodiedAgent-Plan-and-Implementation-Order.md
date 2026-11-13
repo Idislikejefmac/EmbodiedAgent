@@ -137,7 +137,7 @@ The first answer blocks card P0-02; the rest can wait until the card or gate nam
 
 ### Assumptions this plan makes
 
-- The laptop runs Windows and both devices are on the same home WiFi network, with the laptop reachable from the phone on a local port.
+- The laptop runs Windows and both devices are on the same home WiFi network. **Update 13 Nov 2026 (P0-01):** the laptop is a company device whose Windows Firewall (Public profile) blocks inbound connections from the phone, and Jeff prefers to avoid IT-controlled firewall changes. So during development the phone reaches the brain through `adb reverse tcp:<port> tcp:<port>` over the wireless-debugging link, and the app connects to `127.0.0.1:<port>`. Verified on the S25 Edge with an HTTP test. This needs the adb link up during sessions. A direct WiFi connection, with a firewall rule for one private port, stays a later option and requires no protocol change, since only the host address in the app differs.
 - The laptop brain is written in Python 3.11 or newer. The Android app is Kotlin. Nothing in the brain may import Android-specific concepts.
 - The other app being trialled on the phone uses a different package ID. Only one app holds the camera at a time, so test sessions are short and deliberate.
 - An Anthropic API key and one speech vendor account exist by G1 and G3.
@@ -466,7 +466,7 @@ How to read a card: hand the whole card to one agent session. Steps are run one 
 
 **Acceptance test.** Pass: 1,000 echo messages with zero loss, reconnect works, clock offset logged. Fail: any lost or corrupt message.
 
-**Risks.** Windows firewall blocks the port. **Fallback.** Add an inbound rule for the chosen port; if WebSocket proves troublesome on the network, keep the schema and swap transport later, since the schema is the asset.
+**Risks.** Windows firewall blocks the port (confirmed on this laptop in P0-01). **Chosen approach.** Use `adb reverse` so the app connects to `127.0.0.1:<port>`; make the host address a setting in the app so direct WiFi can be switched on later, and run `adb reverse` from the brain's start script. **Fallback.** Add an inbound rule for the chosen port; if WebSocket proves troublesome on the network, keep the schema and swap transport later, since the schema is the asset.
 
 ### P0-06 Body-agnostic interface and SimBody
 
