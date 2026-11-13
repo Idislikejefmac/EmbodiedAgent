@@ -126,7 +126,7 @@ The first answer blocks card P0-02; the rest can wait until the card or gate nam
 
 | Priority | Question | Why it matters | Needed by |
 | --- | --- | --- | --- |
-| 1 | Phone make, model and Android version. **Answered 13 Nov 2026:** Samsung Galaxy S25 Edge (SM-S937U), Android 17. ARCore and Depth support still to be tested in P0-02 | Decides whether ARCore and the Depth API are supported at all | P0-02 |
+| 1 | Phone make, model and Android version. **Answered 13 Nov 2026:** Samsung Galaxy S25 Edge (SM-S937U), Android 17. ARCore tracking and Depth support both confirmed in P0-02 (13 Nov 2026) | Decides whether ARCore and the Depth API are supported at all | P0-02 |
 | 2 | Laptop specs: OS, RAM, and whether it has an NVIDIA GPU. **Answered 13 Nov 2026:** Windows 11 Enterprise, 16 GB RAM, RTX 3080 Laptop GPU (8 GB), i7-11800H. See "Known environment" | Decides whether local speech-to-text is a realistic option and how fast face and voice models run | P0-04 |
 | 3 | Is it acceptable for conversation audio to go to a cloud speech vendor? | Voiceprints and enrollment audio stay local either way, but cloud STT hears every utterance | P2-04 |
 | 4 | Will Syd, Dad and Mom consent to face and voice enrollment, and can Dad and Mom be recorded in person? | Without 2 to 3 real enrolled voices the G6 and G7 tests cannot run as designed | P3-01 |
@@ -156,7 +156,8 @@ Phone, read over wireless debugging:
 | Screen | 1080 x 2340, 450 dpi |
 | Google Play Services for AR | Installed, version 1.57 |
 | Hardware features reported | Camera2 full level, concurrent cameras, gyroscope, accelerometer, microphone, low-latency and pro audio |
-| Not yet verified | Whether the model is on Google's ARCore supported list, `checkAvailability()` and Depth support (card P0-02) |
+| ARCore support (P0-02, verified 13 Nov 2026) | Google's device list (developers.google.com/ar/devices, Android Google Play table) has the row "Samsung, Galaxy S25 Edge, Supports Depth API". On the phone, `checkAvailability()` returned SUPPORTED_INSTALLED, an ARCore session was created (motion tracking supported), and `isDepthModeSupported(AUTOMATIC)` returned true. ARCore library 1.57.0 matches the installed Play Services for AR 1.57 |
+| Not yet verified | How well tracking holds in the bedroom, bathroom and closet (G0 and G8) |
 | Note | A second user profile exists on the phone (adb could not read user 150), probably Secure Folder or a work profile. The other trial app may live there |
 
 Laptop, from dxdiag:
