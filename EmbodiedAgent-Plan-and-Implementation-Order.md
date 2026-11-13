@@ -126,8 +126,8 @@ The first answer blocks card P0-02; the rest can wait until the card or gate nam
 
 | Priority | Question | Why it matters | Needed by |
 | --- | --- | --- | --- |
-| 1 | Phone make, model and Android version | Decides whether ARCore and the Depth API are supported at all | P0-02 |
-| 2 | Laptop specs: OS, RAM, and whether it has an NVIDIA GPU | Decides whether local speech-to-text is a realistic option and how fast face and voice models run | P0-04 |
+| 1 | Phone make, model and Android version. **Answered 13 Nov 2026:** Samsung Galaxy S25 Edge (SM-S937U), Android 17. ARCore and Depth support still to be tested in P0-02 | Decides whether ARCore and the Depth API are supported at all | P0-02 |
+| 2 | Laptop specs: OS, RAM, and whether it has an NVIDIA GPU. **Answered 13 Nov 2026:** Windows 11 Enterprise, 16 GB RAM, RTX 3080 Laptop GPU (8 GB), i7-11800H. See "Known environment" | Decides whether local speech-to-text is a realistic option and how fast face and voice models run | P0-04 |
 | 3 | Is it acceptable for conversation audio to go to a cloud speech vendor? | Voiceprints and enrollment audio stay local either way, but cloud STT hears every utterance | P2-04 |
 | 4 | Will Syd, Dad and Mom consent to face and voice enrollment, and can Dad and Mom be recorded in person? | Without 2 to 3 real enrolled voices the G6 and G7 tests cannot run as designed | P3-01 |
 | 5 | Monthly ceiling for API and speech spend during the trial | Sets the hard cap in P1-04 | P1-04 |
@@ -143,6 +143,37 @@ The first answer blocks card P0-02; the rest can wait until the card or gate nam
 - An Anthropic API key and one speech vendor account exist by G1 and G3.
 - The digiKam library with face tags lives on a Windows laptop Jeff can run an export script on.
 - English only.
+
+### Known environment (recorded 13 Nov 2026)
+
+Phone, read over wireless debugging:
+
+| Item | Value |
+| --- | --- |
+| Model | Samsung Galaxy S25 Edge, SM-S937U (US) |
+| Android | 17 (API 37), security patch 2026-10-05 |
+| Chip and memory | Qualcomm SM8750 (Snapdragon 8 Elite), arm64-v8a, about 11 GB RAM |
+| Screen | 1080 x 2340, 450 dpi |
+| Google Play Services for AR | Installed, version 1.57 |
+| Hardware features reported | Camera2 full level, concurrent cameras, gyroscope, accelerometer, microphone, low-latency and pro audio |
+| Not yet verified | Whether the model is on Google's ARCore supported list, `checkAvailability()` and Depth support (card P0-02) |
+| Note | A second user profile exists on the phone (adb could not read user 150), probably Secure Folder or a work profile. The other trial app may live there |
+
+Laptop, from dxdiag:
+
+| Item | Value |
+| --- | --- |
+| Machine | GIGABYTE AERO 15 YD, host name LOANERLAPTOP. It is a loaner, so keys, `data/` and the repo must be portable or backed up before it is returned |
+| OS | Windows 11 Enterprise 64-bit, build 26300 |
+| CPU and memory | Intel Core i7-11800H (8 cores, 16 threads), 16 GB RAM |
+| GPU | NVIDIA GeForce RTX 3080 Laptop (8 GB), plus Intel UHD. The NVIDIA driver is from January 2022 (30.0.15.1165) and will probably need updating for current CUDA tooling |
+| Network | Intel Wi-Fi 6 AX200, and 2.5 GbE |
+| Audio and camera | Realtek mic and speakers, a built-in 720p-class USB webcam |
+| Storage | 806 GB free on C: |
+
+**Company device, to be returned.** This laptop belongs to Jeff's employer and will be handed back at some point. Moving the project's data off it is part of the process, not an afterthought. `data/` holds family biometrics (faceprints, voiceprints, enrollment media), session recordings, memory claims and the encrypted registry, and the registry key lives in this machine's Windows credential store. Before the laptop goes back, all of it must be moved to Jeff's own machine or storage and then securely deleted from this one, and the key re-created or exported. Card P0-04 includes the export and migration step, and the risk register tracks it.
+
+Consequences for the plan: an NVIDIA GPU is present, so local Whisper-family speech-to-text and GPU face and voice models are realistic options (decision 2 and card P2-04), and a Windows 11 laptop on Wi-Fi 6 is a good fit for the phone link. The laptop's own webcam and mic can stand in for the phone when testing the face and voice services at the desk.
 
 ### Unknowns that cards resolve
 
@@ -404,6 +435,7 @@ How to read a card: hand the whole card to one agent session. Steps are run one 
 5. Add a `config.toml` (laptop IP, port, model IDs, caps) and a `.env.example` for API keys. Check: the brain reads both at start and prints which keys are present, never their values.
 6. Add pytest and one passing test. Check: `pytest` is green.
 7. Add an import-lint test that fails if anything under `brain/` except `brain/body/phone.py` mentions Android or ARCore. Check: adding the word to another file makes the test fail.
+8. Write `docs/migration.md` and a `tools/export_data` command for moving the project off this company laptop: it bundles `data/`, `.env` and the config into one encrypted archive for Jeff's own machine, lists how to re-create or export the registry key, and ends with a secure-delete checklist for the old machine. Check: export on this machine, restore on a second folder or machine, and the brain starts with the same people, places and memory.
 
 **Deliverables.** Repo, config loader, test runner, boundary lint.
 
@@ -1832,11 +1864,12 @@ Sorted by exposure. L is likelihood, I is impact, each High, Medium or Low.
 | 18 | Robot far-field audio and low camera undo phone-phase accuracy | High | Medium | Dedicated re-calibration card; raised mic and camera | R-08 |
 | 19 | Robot harms a person, pet or itself | Low | High | Safety rules enforced below the agent; supervised driving only | R-02, G11 |
 | 20 | Scope: 44 cards is a lot for one person | Medium | Medium | Gates allow stopping at any point with something working; optional cards are marked | All |
+| 21 | The laptop is a company device that will be returned, taking family biometrics, recordings and the registry key with it, or leaving them on a company machine | High | High | Export and migration tool and a secure-delete checklist; periodic backups of `data/` to Jeff's own storage; do the migration well before the return date | P0-04 |
 
 ## Open questions for Jeff, ranked
 
-- [ ] 1\. What is the phone's make, model and Android version? (Blocks P0-02.)
-- [ ] 2\. What laptop will run the brain: Windows version, RAM, and does it have an NVIDIA GPU?
+- [x] 1\. What is the phone's make, model and Android version? Answered: Samsung Galaxy S25 Edge (SM-S937U), Android 17. P0-02 can now run.
+- [x] 2\. What laptop will run the brain: Windows version, RAM, and does it have an NVIDIA GPU? Answered: Windows 11 Enterprise, 16 GB RAM, RTX 3080 Laptop GPU. It is a loaner laptop.
 - [ ] 3\. Are you comfortable with conversation audio going to a cloud speech vendor, given that voiceprints and enrollment audio stay on the laptop? If not, the plan switches to local STT and accepts slower replies.
 - [ ] 4\. Will Syd consent to face and voice enrollment? Will Dad and Mom, and can they be recorded in person in the house?
 - [ ] 5\. What is the monthly ceiling for API and speech spend during the trial?
