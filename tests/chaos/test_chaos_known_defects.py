@@ -17,15 +17,8 @@ from tools.chaos import lints
 pytestmark = pytest.mark.chaos
 
 DEFECTS = [
-    ("P0-05.server.session/failure/", "event_with_3000_keys",
-     "H-08: an event with thousands of keys gives one log line far over LOG_RECORD_MAX_BYTES "
-     "(server._dispatch, server.py:320; same in body/link.py:131)"),
     ("P0-05.server.session/failure/", "event_flood",
      "H-09 / T-P0-05-047: no limit on valid frames; 150 events give 150 INFO lines (PEER_LOG_LINES_PER_MIN_MAX 60)"),
-    ("P0-06.registry.call/failure/", "handler_ignores_cancel",
-     "H-20: ToolRegistry._abandoned is unbounded (ABANDONED_TASKS_PER_TOOL_MAX not enforced)"),
-    ("P0-05.protocol.parse/invalid/", "overflow_to_infinity",
-     "X01-F01: protocol.decode turns 1e400 into inf and validate accepts it (B1: numbers must be finite)"),
     ("P0-04.config.fail_closed/hostile/", "data_dir_absolute_outside",
      "H-05 (10-F09): [paths] data_dir is not confined (absolute path)"),
     ("P0-04.config.fail_closed/hostile/", "data_dir_traversal",
@@ -34,16 +27,8 @@ DEFECTS = [
      "H-05: network.port = 65536 is accepted silently"),
     ("P0-04.matrix.config_keys/invalid/", "network.port.null",
      "H-05: a wrong-typed config value ends python -m brain in a traceback, not a clear refusal"),
-    ("P0-04.matrix.cli_args/invalid/", "brain.serve.--port.one_over_maximum", "H-18: serve --port 65536 is accepted"),
-    ("P0-04.matrix.cli_args/invalid/", "brain.probe.--bytes.ten_times_maximum", "H-18: probe --bytes is unbounded"),
-    ("P0-04.matrix.cli_args/invalid/", "brain.body-check.--wait.nan",
-     "X01-F02: body-check --wait accepts NaN, infinity and negative values"),
     ("P0-04.matrix.migrate/invalid/", "log_n_22_reaches_scrypt",
      "H-01: restore_data hands a header log_n of 22 (about 4 GiB) to scrypt before authenticating the archive"),
-    ("P0-04.matrix.migrate/invalid/", "authentic_but_not_a_tar",
-     "X01-F03: an authentic archive that is not a gzip tar raises tarfile.ReadError; migrate.main shows a traceback"),
-    ("P0-06.matrix.body_args/invalid/", "pose_stream.rate_hz.bool",
-     "X01-F04: SimBody.pose_stream accepts rate_hz=True"),
     ("P0-06.matrix.body_args/invalid/", "audio_chunk.sample_rate_hz.one_over_maximum",
      "Appendix A.10 item 2: AudioChunk has no upper bound on sample_rate_hz"),
 ]
@@ -63,16 +48,13 @@ def test_recorded_defect_is_fixed(chaos_quick_report, prefix, name, defect, requ
     assert case.status == "xpass", f"{defect}: {case.violations[:2]}"
 
 
-@pytest.mark.xfail(strict=True, reason="H-06: seven asserts used for checks in brain/ (E2 baseline); "
-                                       "protocol.py:121 is a real validation that python -O removes")
 def test_no_assert_is_used_for_checks():
     assert sum(lints.scan().values()) == 0, dict(lints.scan())
 
 
-@pytest.mark.xfail(strict=True, reason="H-06 / 10-F01: under python -O, ProtocolError accepts an unknown error code")
 def test_protocol_error_refuses_unknown_codes_even_under_python_O():
     code = ("from brain.transport.protocol import ProtocolError\n"
-            "try:\n    ProtocolError('not_a_code', 'x')\nexcept (AssertionError, ValueError):\n    print('REFUSED')\n"
+            "try:\n    ProtocolError('not_a_code', 'x')\nexcept ValueError:\n    print('REFUSED')\n"
             "else:\n    print('ACCEPTED')\n")
     out = subprocess.run([sys.executable, "-O", "-c", code], capture_output=True, text=True, cwd=REPO_ROOT, timeout=60)
     assert out.stdout.strip() == "REFUSED", out.stdout + out.stderr

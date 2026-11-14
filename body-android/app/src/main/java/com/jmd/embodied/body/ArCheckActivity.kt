@@ -43,14 +43,17 @@ class ArCheckActivity : Activity() {
     private fun runCheck() {
         val availability = ArCoreApk.getInstance().checkAvailability(this)
         add("checkAvailability: $availability")
+        var session: Session? = null
         try {
-            val session = Session(this)
+            session = Session(this)
             add("RESULT session created: tracking supported")
             val depth = session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
             add("RESULT depth AUTOMATIC supported: $depth")
-            session.close()
         } catch (e: Exception) {
             add("RESULT session failed: ${e.javaClass.simpleName}: ${e.message}")
+        } finally {
+            // Always release the session (it holds the camera), also when isDepthModeSupported throws (H-28).
+            session?.let { s -> runCatching { s.close() } }
         }
     }
 

@@ -14,7 +14,7 @@ import asyncio
 import json
 import math
 import time
-from typing import Any
+from typing import Any, cast
 
 from brain.__main__ import BOUNDARY_REQUESTS
 from brain.agent import tools as T
@@ -22,13 +22,13 @@ from brain.agent.body_tools import register_body_tools
 from brain.agent.tools import APP, CONSOLE, Caller, Channel, ToolRegistry, ToolResult
 from brain.body.sim import SimBody
 from brain.body.types import ConfidenceBand
+from brain.limits import ABANDONED_TASKS_PER_TOOL_MAX
 
 from .. import fuzz
 from ..api import Case, CaseClass, Ctx, Gen, Violation, experiment, failure, hostile, invalid, not_applicable, valid
 from ..thresholds import TIMER_TOLERANCE_MS
 
 _CATALOGUE: T.Catalogue | None = None
-ABANDONED_TASKS_PER_TOOL_MAX = 4  # Appendix A.2, Provisional (H-20): not enforced by the registry yet
 
 
 def catalogue() -> T.Catalogue:
@@ -182,8 +182,7 @@ def gen_failure(g: Gen) -> list[Case]:
                                        timeout_s=0.2), "N12"),
         failure("handler_ignores_cancel", _call("who_is_present", {}, "console", {("unavailable", "timeout")},
                                                 setup="ignores_cancel", timeout_s=0.05, calls=ABANDONED_TASKS_PER_TOOL_MAX + 2),
-                "N11", "N12", known_defect="H-20: ToolRegistry._abandoned has no cap; a handler that ignores "
-                                           "cancellation stays in it (ABANDONED_TASKS_PER_TOOL_MAX not enforced)"),
+                "N11", "N12"),
         failure("concurrent_calls", _call("get_body_status", {}, "app", {("ok", "ok")}, body="started",
                                           setup="concurrent", calls=30), "N10"),
         failure("close_during_get_pose", _call("get_pose", {}, "console", None, statuses={"ok", "unavailable", "error"},
@@ -306,13 +305,14 @@ def reference_problem(args: object) -> bool:
             if depth > T.MAX_ARGS_DEPTH:
                 return True
             if kind is dict:
-                if any(type(k) is not str for k in dict.keys(value)):  # type: ignore[arg-type]
+                mapping = cast(dict[object, object], value)  # kind is exactly dict
+                if any(type(k) is not str for k in dict.keys(mapping)):
                     return True
-                stack.extend((v, depth + 1) for v in dict.values(value))  # type: ignore[arg-type]
+                stack.extend((v, depth + 1) for v in dict.values(mapping))
             else:
-                stack.extend((v, depth + 1) for v in list.__iter__(value))  # type: ignore[arg-type]
+                stack.extend((v, depth + 1) for v in list.__iter__(cast(list[object], value)))
         elif kind is float:
-            if not math.isfinite(value):  # type: ignore[arg-type]
+            if not math.isfinite(cast(float, value)):
                 return True
         elif kind is str:
             if len(value) > T.MAX_ARGS_BYTES:  # type: ignore[arg-type]

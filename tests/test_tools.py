@@ -534,11 +534,11 @@ def test_body_tools_run_end_to_end_against_the_sim_body():
             assert status.content["stale"] is False
             assert "pose" in status.content["capabilities"]
             pose = await registry.call("get_pose", {}, APP)
-            assert pose.ok and pose.content["frame_id"] == "sim-1" and pose.content["tracking"] == "ok"
+            assert pose.ok and pose.content["frame_id"] == sim.frame_id and pose.content["tracking"] == "ok"
             assert pose.content["y_m"] == 1.4 and 0 <= pose.content["age_ms"] < 2000
             look = await registry.call("capture_image", {"reason": "test", "max_edge": 64}, APP)
             assert look.ok and look.content["width_px"] == 64
-            assert look.content["camera_pose"]["frame_id"] == "sim-1"
+            assert look.content["camera_pose"]["frame_id"] == sim.frame_id
             (image,) = look.attachments
             assert isinstance(image, Image) and image.image_id == look.content["image_id"] and image.data
             assert "data" not in json.dumps(look.to_json())  # the picture travels beside the JSON, not in it

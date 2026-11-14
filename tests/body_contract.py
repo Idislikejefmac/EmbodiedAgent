@@ -217,6 +217,12 @@ async def check_pose_stream(h: Harness) -> None:
     body = h.body
     if not body.supports(Capability.POSE):
         return await refuses(body, Capability.POSE, lambda: body.pose_stream())
+    for not_a_number in (True, False, "10", None, [10]):  # a bool is not a number here (X01-F04)
+        with pytest.raises(TypeError):
+            body.pose_stream(rate_hz=not_a_number)
+    for not_finite in (float("nan"), float("inf"), -1.0):
+        with pytest.raises(ValueError):
+            body.pose_stream(rate_hz=not_finite)
     with pytest.raises(ValueError):
         body.pose_stream(rate_hz=0)
     with pytest.raises(ValueError):

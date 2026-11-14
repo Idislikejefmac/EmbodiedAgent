@@ -50,20 +50,20 @@ def _recursive_plain_json_problem(args: object) -> str | None:
         if count[0] > tools_mod.MAX_ARGS_NODES:
             return "too many values"
         if type(value) is dict:
-            for k, v in value.items():  # type: ignore[attr-defined]
+            for k, v in value.items():
                 if type(k) is not str:
                     return "argument names must be strings"
                 found = walk(v)
                 if found:
                     return found
         elif type(value) is list:
-            for v in value:  # type: ignore[attr-defined]
+            for v in value:
                 found = walk(v)
                 if found:
                     return found
-        elif type(value) is float and not math.isfinite(value):  # type: ignore[arg-type]
+        elif type(value) is float and not math.isfinite(value):
             return "numbers must be finite"
-        elif type(value) is str and len(value) > tools_mod.MAX_ARGS_BYTES:  # type: ignore[arg-type]
+        elif type(value) is str and len(value) > tools_mod.MAX_ARGS_BYTES:
             return "too large"
         elif type(value) not in (dict, list, float, str, int, bool, type(None)):
             return "not plain JSON"

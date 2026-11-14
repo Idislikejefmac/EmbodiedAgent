@@ -21,14 +21,23 @@ import asyncio
 import ipaddress
 import logging
 import logging.handlers
+import math
 import os
 import signal
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from types import FrameType
+from typing import TYPE_CHECKING, Any, cast
 
 from . import __version__
 from .config import REPO_ROOT, key_presence, load_config
+from .limits import BODY_CHECK_WAIT_MAX_S, ECHO_TEST_MAX_BYTES, ECHO_TEST_MAX_COUNT, PORT_MAX, PORT_MIN
+from .logsafe import CapRecordSize
+
+if TYPE_CHECKING:
+    from .body.base import Body
 
 PHONE_LINK_RECHECK_S = 60
 
@@ -38,20 +47,18 @@ def info() -> int:
     config = load_config()
     network = config.get("network", {})
     print(f"config: ok (host {network.get('host')}, port {network.get('port')})")
-    data_dir = REPO_ROOT / config.get("paths", {}).get("data_dir", "data")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    print(f"data dir: {data_dir}")
+    print(f"data dir: {data_dir(config)}")  # read-only: info never creates it
     print(f"secrets dir (link token): {secrets_dir(config)}")
     for name, present in key_presence().items():
         print(f"key {name}: {'present' if present else 'missing'}")
     return 0
 
 
-def data_dir(config: dict) -> Path:
-    return REPO_ROOT / config.get("paths", {}).get("data_dir", "data")
+def data_dir(config: dict[str, Any]) -> Path:
+    return REPO_ROOT / cast(str, config.get("paths", {}).get("data_dir", "data"))
 
 
-def secrets_dir(config: dict) -> Path:
+def secrets_dir(config: dict[str, Any]) -> Path:
     """Where the link token lives: config [paths] secrets_dir, else a private folder in the user profile."""
     from .transport.auth import default_secrets_dir
 
@@ -59,7 +66,7 @@ def secrets_dir(config: dict) -> Path:
     return Path(os.path.expandvars(override)).expanduser() if override else default_secrets_dir()
 
 
-def load_token(config: dict, *, rotate: bool = False) -> tuple[bytes | None, str]:
+def load_token(config: dict[str, Any], *, rotate: bool = False) -> tuple[bytes | None, str]:
     """(token, "") or (None, a message saying what is wrong and what to do). Never raises."""
     from .transport.auth import TokenStoreError, load_or_create_token
 
@@ -73,7 +80,7 @@ def load_token(config: dict, *, rotate: bool = False) -> tuple[bytes | None, str
         return None, f"could not read or create the link token in {secrets_dir(config)}: {e}"
 
 
-def setup_logging(config: dict, name: str, verbose: bool = False) -> str:
+def setup_logging(config: dict[str, Any], name: str, verbose: bool = False) -> str:
     log_dir = data_dir(config) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{name}-{datetime.now():%Y%m%d-%H%M%S}.log"
@@ -84,6 +91,7 @@ def setup_logging(config: dict, name: str, verbose: bool = False) -> str:
                                                         encoding="utf-8")
     for h in (logging.StreamHandler(sys.stdout), file_handler):
         h.setFormatter(fmt)
+        h.addFilter(CapRecordSize())  # no record over LOG_RECORD_MAX_BYTES (H-08)
         root.addHandler(h)
     logging.getLogger("websockets").setLevel(logging.INFO)
     return str(log_file)
@@ -98,13 +106,13 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-async def _serve(args, token: bytes, log: logging.Logger) -> None:
+async def _serve(args: argparse.Namespace, token: bytes, log: logging.Logger) -> None:
     from .transport.server import BrainServer
 
     loop = asyncio.get_running_loop()
     stop = asyncio.Event()
 
-    def on_signal(signum, frame):
+    def on_signal(signum: int, frame: FrameType | None) -> None:
         loop.call_soon_threadsafe(stop.set)
 
     previous = {}
@@ -113,7 +121,7 @@ async def _serve(args, token: bytes, log: logging.Logger) -> None:
         if sig is not None:
             try:
                 previous[sig] = signal.signal(sig, on_signal)
-            except (ValueError, OSError):
+            except (ValueError, OSError):  # swallowed: no handler for this signal here (not the main thread, or Windows)
                 pass
     server = BrainServer(args.host, args.port, token=token)
     tasks = []
@@ -138,7 +146,7 @@ async def _keep_phone_link(port: int, log: logging.Logger) -> None:
     await phone.keep_link(port, log, PHONE_LINK_RECHECK_S)
 
 
-def serve(args, config: dict) -> int:
+def serve(args: argparse.Namespace, config: dict[str, Any]) -> int:
     log_file = setup_logging(config, "serve", args.verbose)
     log = logging.getLogger("brain.serve")
     log.info("embodied-agent brain %s; log file %s", __version__, log_file)
@@ -159,7 +167,7 @@ def serve(args, config: dict) -> int:
     return 0
 
 
-def probe(args, config: dict) -> int:
+def probe(args: argparse.Namespace, config: dict[str, Any]) -> int:
     from .transport.auth import AuthError
     from .transport.client import TestBodyClient
 
@@ -172,13 +180,14 @@ def probe(args, config: dict) -> int:
         log.error("%s", problem)
         return 2
 
-    async def go():
+    async def go() -> bool:
         url = f"ws://{args.host}:{args.port}/"
         async with TestBodyClient(url, token=token) as c:
-            log.info("connected to %s session %s", url, c.brain_hello["payload"]["session_id"])
+            hello = c.brain_hello or {}
+            log.info("connected to %s session %s", url, hello.get("payload", {}).get("session_id"))
             res = await c.echo_test(args.count, args.bytes)
             log.info("echo result: %s ok=%s", res, res.ok)
-            return res.ok
+            return bool(res.ok)
 
     try:
         return 0 if asyncio.run(go()) else 1
@@ -187,7 +196,7 @@ def probe(args, config: dict) -> int:
         return 1
 
 
-def pair(args, config: dict) -> int:
+def pair(args: argparse.Namespace, config: dict[str, Any]) -> int:
     from .body import phone
 
     token, problem = load_token(config, rotate=args.rotate)
@@ -201,7 +210,7 @@ def pair(args, config: dict) -> int:
     return 0 if ok else 1
 
 
-BOUNDARY_REQUESTS = (  # what the app channel must never get (plan: "Command boundary"); each is refused
+BOUNDARY_REQUESTS: tuple[tuple[str, dict[str, Any]], ...] = (  # what the app channel must never get (plan: "Command boundary"); each is refused
     ("delete the C drive", {}),
     ("delete_files", {"path": "C:\\"}),
     ("read config.toml", {}),
@@ -213,7 +222,7 @@ BOUNDARY_REQUESTS = (  # what the app channel must never get (plan: "Command bou
 )
 
 
-async def _body_check(body, wait_s: float) -> int:
+async def _body_check(body: Body, wait_s: float) -> int:
     """Drive a body through the tool registry exactly as the agent loop will. Prints one line per call."""
     from .agent.body_tools import register_body_tools
     from .agent.tools import APP, CONSOLE, ToolRegistry
@@ -226,7 +235,7 @@ async def _body_check(body, wait_s: float) -> int:
         if not await body.wait_connected(wait_s):
             print("body: NOT CONNECTED (status is still asked for, and must say so)")
         print(f"body: capabilities {sorted(c.value for c in body.capabilities)}; clock {body.clock_sync().to_json()}")
-        calls = (("get_body_status", {}), ("get_pose", {}), ("capture_image", {"reason": "body check"}),
+        calls: tuple[tuple[str, dict[str, Any]], ...] = (("get_body_status", {}), ("get_pose", {}), ("capture_image", {"reason": "body check"}),
                  ("speak", {"text": "Body check."}), ("stop", {}), ("listen", {}), ("who_is_present", {}),
                  ("navigate_to", {"waypoint": "kitchen"}))
         for name, args in calls:
@@ -243,7 +252,7 @@ async def _body_check(body, wait_s: float) -> int:
     return 0 if not failures else 1
 
 
-def body_check(args, config: dict) -> int:
+def body_check(args: argparse.Namespace, config: dict[str, Any]) -> int:
     from .body import create_body
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s", stream=sys.stdout)
@@ -275,11 +284,36 @@ def chaos(argv: list[str]) -> int:
     return chaos_main(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
-    from .egress import EgressPolicy, install_guard
+def _int_in_range(low: int, high: int, what: str) -> Callable[[str], int]:
+    """argparse type: a whole number from low to high, else a clean `error:` line and exit code 2."""
+    def convert(text: str) -> int:
+        try:
+            value = int(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{what} must be a whole number, not {text[:40]!r}") from None
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(f"{what} must be from {low} to {high}, not {text[:40]}")
+        return value
+    return convert
 
-    config = load_config()
+
+def _float_in_range(low: float, high: float, what: str) -> Callable[[str], float]:
+    """argparse type: a finite number from low to high (NaN, infinity and out-of-range values are refused)."""
+    def convert(text: str) -> float:
+        try:
+            value = float(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{what} must be a number, not {text[:40]!r}") from None
+        if not math.isfinite(value) or not low <= value <= high:
+            raise argparse.ArgumentTypeError(f"{what} must be a finite number from {low:g} to {high:g}, "
+                                             f"not {text[:40]}")
+        return value
+    return convert
+
+
+def build_parser(config: dict[str, Any]) -> argparse.ArgumentParser:
     net = config.get("network", {})
+    port_type = _int_in_range(PORT_MIN, PORT_MAX, "a port")
     parser = argparse.ArgumentParser(prog="python -m brain")
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("info", help="version, config and key presence (default)")
@@ -288,7 +322,8 @@ def main(argv: list[str] | None = None) -> int:
                                      "(replaces a connected body, which then stops)")):
         sp = sub.add_parser(name, help=helptext)
         sp.add_argument("--host", default=net.get("host", "127.0.0.1"))
-        sp.add_argument("--port", type=int, default=int(net.get("port", 8765)))
+        sp.add_argument("--port", type=port_type, default=int(net.get("port", 8765)),
+                        help=f"TCP port, {PORT_MIN} to {PORT_MAX} (well-known ports are not refused)")
     pp = sub.add_parser("pair", help="send this brain's link token to the phone body (debug builds of the body only)")
     pp.add_argument("--rotate", action="store_true", help="make a new token first (the old one stops working)")
     s = sub.choices["serve"]
@@ -297,13 +332,24 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--allow-remote", action="store_true",
                    help="allow a non-loopback --host (unencrypted; logs a loud warning)")
     s.add_argument("-v", "--verbose", action="store_true", help="debug logging (every clock sample, payloads)")
-    sub.choices["probe"].add_argument("--count", type=int, default=1000)
-    sub.choices["probe"].add_argument("--bytes", type=int, default=100 * 1024)
+    sub.choices["probe"].add_argument("--count", type=_int_in_range(1, ECHO_TEST_MAX_COUNT, "--count"),
+                                         default=1000, help=f"echoes, 1 to {ECHO_TEST_MAX_COUNT}")
+    sub.choices["probe"].add_argument("--bytes", type=_int_in_range(0, ECHO_TEST_MAX_BYTES, "--bytes"),
+                                         default=100 * 1024, help=f"bytes per echo, 0 to {ECHO_TEST_MAX_BYTES}")
     bc = sub.add_parser("body-check", help="start a body, call every agent tool, try the boundary requests")
     bc.add_argument("--body", choices=("sim", "phone"), default=None, help="default: config.toml [body] kind")
-    bc.add_argument("--wait", type=float, default=30.0, help="seconds to wait for the body to connect")
+    bc.add_argument("--wait", type=_float_in_range(0.0, BODY_CHECK_WAIT_MAX_S, "--wait"), default=30.0,
+                    help=f"seconds to wait for the body to connect, 0 to {BODY_CHECK_WAIT_MAX_S:g}")
     sub.add_parser("chaos", add_help=False,
                    help="run the chaos and boundary test harness (card X-01; `chaos --help` for its options)")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    from .egress import EgressPolicy, install_guard
+
+    config = load_config()
+    parser = build_parser(config)
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["chaos"]:
         return chaos(argv[1:])

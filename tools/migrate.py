@@ -19,6 +19,7 @@ import io
 import os
 import sys
 import tarfile
+import zlib
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
@@ -113,10 +114,13 @@ def restore_data(archive: Path, dest: Path, passphrase: str) -> list[str]:
     except InvalidTag as exc:
         raise ValueError("Wrong passphrase or corrupted archive") from exc
     dest.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
-        members = list(_safe_members(tar, dest))
-        tar.extractall(dest, members=members, filter="data")
-        return sorted({m.name.split("/")[0] for m in members})
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+            members = list(_safe_members(tar, dest))
+            tar.extractall(dest, members=members, filter="data")
+            return sorted({m.name.split("/")[0] for m in members})
+    except (tarfile.TarError, EOFError, zlib.error) as exc:  # authentic, but not a gzip tar (X01-F03)
+        raise ValueError(f"Archive is not a valid compressed tar ({type(exc).__name__})") from exc
 
 
 def main(argv: list[str] | None = None) -> int:

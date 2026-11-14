@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import contextlib
 import copy
+import functools
 import io
 import json
 import math
@@ -74,6 +75,10 @@ def _get(msg: dict[str, Any], path: tuple[str, ...]) -> Any:
     return value
 
 
+def _field_case(b: Boundary, path: tuple[str, ...], msg: dict[str, Any]) -> dict[str, Any]:
+    return {"msg": _set(msg, path, b.value), "path": path, "sender": sender_of(msg), "accept": b.accept}
+
+
 def gen_protocol(g: Gen) -> list[Case]:
     s = p.schema()
     out: list[Case] = []
@@ -86,7 +91,7 @@ def gen_protocol(g: Gen) -> list[Case]:
         payload_def = s["$defs"].get(t, {})
         required = set(payload_def.get("required", []))
         for field, sub in payload_def.get("properties", {}).items():
-            paths = [((field,), spec_from_schema(sub, s, required=field in required))]
+            paths: list[tuple[tuple[str, ...], Spec]] = [((field,), spec_from_schema(sub, s, required=field in required))]
             resolved = sub if "$ref" not in sub else s["$defs"][sub["$ref"].split("/")[-1]]
             for inner, inner_schema in (resolved.get("properties") or {}).items():
                 paths.append(((field, inner), spec_from_schema(inner_schema, s,
@@ -101,8 +106,7 @@ def gen_protocol(g: Gen) -> list[Case]:
 
                 heavy = () if g.mode == "full" or (t, path) in QUICK_HEAVY_KEEP else QUICK_HEAVY
                 out += matrix_cases(f"{t}.{'.'.join(path)}", spec, skip=NOT_JSON + heavy, context=context,
-                                    make=lambda b, path=path, msg=msg: {"msg": _set(msg, path, b.value), "path": path,
-                                                                        "sender": sender_of(msg), "accept": b.accept})
+                                    make=functools.partial(_field_case, path=path, msg=msg))
     return out
 
 
@@ -172,6 +176,10 @@ def check_token(case: Case, ctx: Ctx) -> Any:
 # ---- P0-06: every tool parameter, through the registry ---------------------------------------------------------
 
 
+def _tool_case(b: Boundary, name: str, param: str, base: dict[str, Any]) -> dict[str, Any]:
+    return {"tool": name, "args": _with(base, param, b.value), "accept": b.accept}
+
+
 def gen_tools(g: Gen) -> list[Case]:
     out: list[Case] = []
     for name, spec in sorted(catalogue().tools.items()):
@@ -181,8 +189,7 @@ def gen_tools(g: Gen) -> list[Case]:
         for param, sub in sorted(props.items()):
             pspec = spec_from_schema(sub, required=param in required)
             out += matrix_cases(f"{name}.{param}", pspec,
-                                make=lambda b, name=name, param=param, base=base: {
-                                    "tool": name, "args": _with(base, param, b.value), "accept": b.accept})
+                                make=functools.partial(_tool_case, name=name, param=param, base=base))
     return out
 
 
@@ -226,8 +233,7 @@ async def check_tools(case: Case, ctx: Ctx) -> Any:
 WIRE_SAMPLE_RATE = (8000, 192_000)  # protocol schema audio_in.sample_rate_hz; Appendix A.10 item 2
 BODY_INPUTS: list[tuple[str, Spec, dict[str, str]]] = [
     ("capture_image.max_edge_px", Spec("integer", minimum=64, maximum=4096, required=False), {}),
-    ("pose_stream.rate_hz", Spec("number", exclusive_minimum=0, maximum=30, required=False),
-     {"bool": "X01-F04: SimBody.pose_stream accepts rate_hz=True (a bool counts as 1 Hz) instead of a TypeError"}),
+    ("pose_stream.rate_hz", Spec("number", exclusive_minimum=0, maximum=30, required=False), {}),
     ("speak_text.text", Spec("string", min_length=1, strict_text=False), {}),
     ("speak_text.utterance_id", Spec("string", min_length=1, max_length=64, pattern=T.ID_PATTERN), {}),
     ("audio_chunk.sample_rate_hz", Spec("integer", minimum=WIRE_SAMPLE_RATE[0], maximum=WIRE_SAMPLE_RATE[1]),
@@ -236,16 +242,19 @@ BODY_INPUTS: list[tuple[str, Spec, dict[str, str]]] = [
 ]
 
 
+def _body_input_case(b: Boundary, name: str) -> dict[str, Any]:
+    return {"input": name, "value": b.value, "accept": b.accept}
+
+
 def gen_body(g: Gen) -> list[Case]:
     out: list[Case] = []
     for name, spec, known in BODY_INPUTS:
-        out += matrix_cases(name, spec, known=known, make=lambda b, name=name: {"input": name, "value": b.value,
-                                                                                 "accept": b.accept})
+        out += matrix_cases(name, spec, known=known, make=functools.partial(_body_input_case, name=name))
     return out
 
 
 async def _body_call(body: Any, name: str, value: Any) -> Any:
-    kw = {} if value is MISSING else None
+    kw: dict[str, Any] | None = {} if value is MISSING else None
     if name == "capture_image.max_edge_px":
         return await body.capture_image(**(kw if kw is not None else {"max_edge_px": value}))
     if name == "pose_stream.rate_hz":
@@ -259,7 +268,7 @@ async def _body_call(body: Any, name: str, value: Any) -> Any:
     if name == "speak_text.utterance_id":
         return await body.speak_text("hello", **({} if value is MISSING else {"utterance_id": value}))
     if name == "audio_chunk.sample_rate_hz":
-        args = {"stream_id": 0, "seq": 0, "channels": 1, "data": b"\x00\x00" * 4}
+        args: dict[str, Any] = {"stream_id": 0, "seq": 0, "channels": 1, "data": b"\x00\x00" * 4}
         if value is not MISSING:
             args["sample_rate_hz"] = value
         return AudioChunk(**args)
@@ -336,15 +345,12 @@ def check_egress(case: Case, ctx: Ctx) -> Any:
 # ---- P0-04: numeric command-line flags ----------------------------------------------------------------------------
 
 # Stated ranges (Appendix A; H-18 is that the brain does not enforce them yet).
-CLI_RANGES: dict[tuple[str, str, str], tuple[Spec, str | None]] = {
-    ("brain", "serve", "--port"): (Spec("integer", minimum=1, maximum=65535), "H-18: --port accepts any integer"),
-    ("brain", "probe", "--port"): (Spec("integer", minimum=1, maximum=65535), "H-18: --port accepts any integer"),
-    ("brain", "probe", "--count"): (Spec("integer", minimum=1, maximum=10_000),
-                                    "H-18: probe --count is unbounded (ECHO_TEST_MAX_COUNT 10000 on the phone only)"),
-    ("brain", "probe", "--bytes"): (Spec("integer", minimum=0, maximum=1_048_576),
-                                    "H-18: probe --bytes is unbounded (ECHO_TEST_MAX_BYTES 1 MiB on the phone only)"),
-    ("brain", "body-check", "--wait"): (Spec("number", minimum=0, maximum=3600),
-                                        "X01-F02: body-check --wait accepts negative, NaN, infinite and huge values"),
+CLI_RANGES: dict[tuple[str, str, str], tuple[Spec, str | None]] = {  # (spec, recorded defect or None)
+    ("brain", "serve", "--port"): (Spec("integer", minimum=1, maximum=65535), None),
+    ("brain", "probe", "--port"): (Spec("integer", minimum=1, maximum=65535), None),
+    ("brain", "probe", "--count"): (Spec("integer", minimum=1, maximum=10_000), None),
+    ("brain", "probe", "--bytes"): (Spec("integer", minimum=0, maximum=1_048_576), None),
+    ("brain", "body-check", "--wait"): (Spec("number", minimum=0, maximum=3600), None),  # X01-F02, H-18: fixed
 }
 _PARSERS: dict[str, argparse.ArgumentParser] = {}
 
@@ -377,6 +383,11 @@ def _parses(text: str | None, kind: str) -> bool:
         return False
 
 
+def _cli_case(b: Boundary, program: str, cmd: str, flag: str) -> dict[str, Any]:
+    return {"program": program, "argv": [cmd] + ([] if b.value is MISSING else [flag, _argv_value(b.value)]),
+            "accept": b.accept}
+
+
 def gen_cli(g: Gen) -> list[Case]:
     from ..matrix import boundary_values
 
@@ -387,10 +398,10 @@ def gen_cli(g: Gen) -> list[Case]:
         # convert are refused already and must stay refused.
         known = {b.name: defect for b in boundary_values(spec)
                  if defect and b.accept is False and b.value is not MISSING and _parses(_argv_value(b.value), spec.type)}
-        out += matrix_cases(f"{program}.{cmd}.{flag}", spec, known=known, skip=NOT_JSON + ("wrong_type_list",),
-                            make=lambda b, program=program, cmd=cmd, flag=flag: {
-                                "program": program, "argv": [cmd] + ([] if b.value is MISSING else [flag, _argv_value(b.value)]),
-                                "accept": b.accept})
+        # skip numeric_string: every argv value is a string, so "1" is an ordinary valid value here
+        out += matrix_cases(f"{program}.{cmd}.{flag}", spec, known=known,
+                            skip=NOT_JSON + ("wrong_type_list", "numeric_string"),
+                            make=functools.partial(_cli_case, program=program, cmd=cmd, flag=flag))
     return out
 
 
@@ -435,23 +446,27 @@ CONFIG_DEFECT = ("H-05: config.toml has no schema; a wrong or out-of-range value
                  "ends python -m brain with a traceback instead of a clear refusal")
 
 
+def _config_case(b: Boundary, path: tuple[str, ...]) -> dict[str, Any]:
+    return {"path": path, "value": b.value, "accept": b.accept}
+
+
 def gen_config(g: Gen) -> list[Case]:
     out: list[Case] = []
     for path, spec in CONFIG_KEYS:
         heavy = () if g.mode == "full" or path == ("network", "host") else QUICK_HEAVY
         out += matrix_cases(".".join(path), spec, known={"*": CONFIG_DEFECT}, skip=NOT_JSON + heavy,
-                            make=lambda b, path=path: {"path": path, "value": b.value, "accept": b.accept})
+                            make=functools.partial(_config_case, path=path))
     return out
 
 
 def _start_brain_with(cfg: dict[str, Any]) -> None:
     """What `python -m brain` does with its config before any command runs, without running one."""
-    saved = cli.load_config
-    cli.load_config = lambda *a, **k: cfg  # type: ignore[assignment]
+    saved = getattr(cli, "load_config")
+    setattr(cli, "load_config", lambda *a, **k: cfg)  # what main() reads its config through
     try:
         capture_parser(cli.main, ["info"])
     finally:
-        cli.load_config = saved
+        setattr(cli, "load_config", saved)
     EgressPolicy.from_config(cfg)
     cli.data_dir(cfg)
     cli.secrets_dir(cfg)
@@ -507,9 +522,7 @@ def gen_migrate(g: Gen) -> list[Case]:
                              "authenticated; 22 asks for about 4 GiB (only SCRYPT_LOG_N 17 is ever written)"),
         invalid("empty_passphrase_export", {"op": "export", "passphrase": ""}, "N3"),
         invalid("passphrase_one_short", {"op": "export", "passphrase": "x" * 11}, "N3"),
-        invalid("authentic_but_not_a_tar", {"op": "not_tar"}, "N4",
-                known_defect="X01-F03: an archive that decrypts but is not a gzip tar makes restore_data raise "
-                             "tarfile.ReadError, which migrate.main does not catch (a traceback, not 'Error: ...')"),
+        invalid("authentic_but_not_a_tar", {"op": "not_tar"}, "N4"),
     ]
 
 

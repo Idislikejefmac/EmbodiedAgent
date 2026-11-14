@@ -207,7 +207,8 @@ class Ctx:
         self.notes.append(text[:200])
 
     def log_messages(self) -> list[str]:
-        return self.monitors.messages()
+        messages: list[str] = self.monitors.messages()
+        return messages
 
 
 GenFn = Callable[[Gen], Iterable[Case]]

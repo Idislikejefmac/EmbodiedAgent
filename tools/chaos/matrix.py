@@ -176,8 +176,10 @@ def boundary_values(spec: Spec) -> list[Boundary]:
         add(Boundary("deep", _deep(100_000), "N4", None))
         add(Boundary("many_keys", {f"k{i}": i for i in range(5000)}, "N4", None))
     else:  # "any": nothing declared, so only "no crash" can be asked
-        for name, v in (("int", 7), ("string", "a"), ("list", []), ("deep", _deep(100_000)), ("nan", math.nan)):
-            add(Boundary(f"any_{name}", v, "N1", None))
+        samples: tuple[tuple[str, Any], ...] = (("int", 7), ("string", "a"), ("list", []),
+                                                ("deep", _deep(100_000)), ("nan", math.nan))
+        for name, sample in samples:
+            add(Boundary(f"any_{name}", sample, "N1", None))
     return out
 
 
@@ -211,6 +213,6 @@ def matrix_cases(prefix: str, spec: Spec, make: Callable[[Boundary], Any], *, kn
             b = Boundary(b.name, b.value, b.tag, context(b))
         cls = CaseClass.VALID if b.accept is True else CaseClass.INVALID
         defect = known.get(b.name) or (known.get("*") if b.accept is False else None)
-        out.append(Case(f"{stem}.{b.name}"[-80:].lstrip("_.-"), cls, make(b), frozenset() if cls is CaseClass.VALID else {b.tag},
+        out.append(Case(f"{stem}.{b.name}"[-80:].lstrip("_.-"), cls, make(b), frozenset() if cls is CaseClass.VALID else frozenset({b.tag}),
                         known_defect=defect))
     return out

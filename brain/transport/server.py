@@ -13,6 +13,8 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from .. import __version__
+from ..limits import PORT_MAX, TOKEN_MIN_BYTES
+from ..logsafe import short_items, short_repr
 from . import auth
 from . import protocol as p
 from .clock import ClockOffsetEstimator
@@ -54,8 +56,17 @@ class BrainServer:
                  on_connect: LinkHandler | None = None, on_disconnect: LinkHandler | None = None,
                  heartbeat_s: float = p.HEARTBEAT_MS / 1000, liveness_s: float = p.LIVENESS_TIMEOUT_MS / 1000,
                  hello_timeout_s: float = 10.0, send_timeout_s: float = 30.0):
-        if len(token) < 16:
-            raise ValueError("the link token must be at least 16 bytes")
+        if not isinstance(token, bytes):
+            raise TypeError(f"the link token must be bytes, not {type(token).__name__}")
+        if len(token) < TOKEN_MIN_BYTES:
+            raise ValueError(f"the link token must be at least {TOKEN_MIN_BYTES} bytes")
+        if isinstance(port, bool) or not isinstance(port, int):
+            raise TypeError(f"port must be an int, not {type(port).__name__}")
+        if not 0 <= port <= PORT_MAX:  # 0 asks the OS for a free port
+            raise ValueError(f"port must be from 0 to {PORT_MAX}, not {port}")
+        heartbeat_s, liveness_s = p.check_link_timing(heartbeat_s, liveness_s)
+        hello_timeout_s = p.check_timeout("hello_timeout_s", hello_timeout_s)
+        send_timeout_s = p.check_timeout("send_timeout_s", send_timeout_s)
         self.host = host
         self.port = port
         self._token = token
@@ -204,7 +215,7 @@ class BrainServer:
         if callback is not None:
             try:
                 callback(link)
-            except Exception:  # a listener bug must not take the session down
+            except Exception:  # broad-except: a listener bug must not take the session down
                 link.log.exception("link listener failed")
 
     async def _fail_handshake(self, link: Link, err: p.ProtocolError) -> bool:
@@ -251,9 +262,11 @@ class BrainServer:
                 "unauthorized", "not paired: hello carries no auth nonce", reply_to=hid))
         unknown = sorted(set(hp["capabilities"]) - set(p.CAPABILITIES))
         # Peer-supplied strings are logged with %r so they cannot forge log lines.
-        link.log.info("hello from %s %r boot_id=%r capabilities=%r commands=%r%s", hp["role"], hp["software"],
-                      hp.get("boot_id"), hp["capabilities"], hp.get("commands", []),
-                      f" (unknown, ignored: {unknown!r})" if unknown else "")
+        commands = hp.get("commands", [])
+        link.log.info("hello from %s %r boot_id=%r capabilities=%s commands=%s%s", hp["role"], hp["software"],
+                      hp.get("boot_id"), short_items(hp["capabilities"], len(hp["capabilities"])),
+                      short_items(commands, len(commands)),
+                      f" (unknown, ignored: {short_items(unknown, len(unknown))})" if unknown else "")
         link.peer_hello = hp
         await link.send("hello", {
             "role": p.BRAIN, "software": f"embodied-agent-brain/{__version__}", "versions": [p.PROTOCOL_VERSION],
@@ -297,7 +310,7 @@ class BrainServer:
                 await self._dispatch(link, r)
             except ConnectionClosed:
                 return
-            except Exception as e:  # a handler bug must not take the session down
+            except Exception as e:  # broad-except: a handler bug must not take the session down
                 link.log.exception("handler failed on %s id=%d", r.type, r.msg["id"])
                 try:
                     await link.refuse(p.ProtocolError("internal", f"brain failed handling {r.type}: "
@@ -315,10 +328,10 @@ class BrainServer:
             # Names and keys only at INFO, all with %r: payload contents may be personal data later.
             name, data = msg["payload"]["name"], msg["payload"]["data"]
             if name in DIAGNOSTIC_EVENTS:
-                link.log.info("event %s %r", name, data)
+                link.log.info("event %s %s", name, short_repr(data, 500))
             else:
-                link.log.info("event %s (data keys %r)", name, sorted(data))
-                link.log.debug("event %s data %r", name, data)
+                link.log.info("event %s (data keys %s)", name, short_items(data, len(data)))
+                link.log.debug("event %s data %s", name, short_repr(data, 500))
         elif r.type == "ack":
             link.log.info("ack for %s", msg["reply_to"])
         else:

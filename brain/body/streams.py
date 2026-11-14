@@ -50,6 +50,8 @@ class Subscription[T]:
     """One consumer's view of a Fanout."""
 
     def __init__(self, maxsize: int, on_close: Callable[[Subscription[T]], None] | None = None):
+        if isinstance(maxsize, bool) or not isinstance(maxsize, int):
+            raise TypeError(f"a stream queue size must be a whole number, not {type(maxsize).__name__}")
         if maxsize < 1:
             raise ValueError("a stream queue holds at least one item")
         self._items: deque[T] = deque()

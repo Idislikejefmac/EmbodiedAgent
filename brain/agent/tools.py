@@ -33,21 +33,24 @@ event loop (a long computation, a blocking call) stalls everything, and no timeo
 from __future__ import annotations
 
 import asyncio
+import functools
 import itertools
 import json
 import logging
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from jsonschema import Draft202012Validator, validators
 
 from ..body.base import BodyBusy, BodyError, BodyTimeout, BodyUnavailable, NotSupported, NotYetImplemented
 from ..body.types import IDENTIFIER, ConfidenceBand, Image
+from ..limits import ABANDONED_TASKS_PER_TOOL_MAX
 
 log = logging.getLogger("brain.agent.tools")
 
@@ -224,13 +227,15 @@ MESSAGES = {
     "body_unavailable": "I can't reach my body right now.",
     "busy": "My body is busy; try again in a moment.",
     "timeout": "That took too long and I gave up.",
+    "tool_stuck": "That ability is not working right now.",
     "body_error": "My body could not do that.",
     "internal": "Something went wrong inside me while doing that.",
 }
 STATUS_OF = {
     "ok": "ok", "unknown_tool": "refused", "channel_not_permitted": "refused", "identity_not_confirmed": "refused",
     "invalid_arguments": "refused", "not_built": "unavailable", "body_not_supported": "unavailable",
-    "body_unavailable": "unavailable", "busy": "unavailable", "timeout": "unavailable", "body_error": "error",
+    "body_unavailable": "unavailable", "busy": "unavailable", "timeout": "unavailable", "tool_stuck": "unavailable",
+    "body_error": "error",
     "internal": "error",
 }
 
@@ -323,7 +328,8 @@ def catalogue_problems(raw: object) -> list[str]:
                 continue
             try:
                 Draft202012Validator.check_schema(schema)
-            except Exception as e:  # jsonschema.SchemaError
+            # broad-except: jsonschema.SchemaError, or anything a malformed schema makes it raise; reported, not raised
+            except Exception as e:
                 bad.append(f"{name}: {key} is not a valid JSON Schema: {str(e)[:200]}")
                 schemas_ok = False
                 continue
@@ -404,20 +410,18 @@ def _plain_json_problem(args: object) -> str | None:
             if depth > MAX_ARGS_DEPTH:
                 return f"arguments are nested deeper than {MAX_ARGS_DEPTH}"
             if kind is dict:
-                assert isinstance(value, dict)
-                if any(type(k) is not str for k in dict.keys(value)):
+                mapping = cast(dict[object, object], value)  # kind is exactly dict
+                if any(type(k) is not str for k in dict.keys(mapping)):
                     return "argument names must be strings"
-                stack.extend((v, depth + 1) for v in dict.values(value))
+                stack.extend((v, depth + 1) for v in dict.values(mapping))
             else:
-                assert isinstance(value, list)
-                stack.extend((v, depth + 1) for v in list.__iter__(value))
+                stack.extend((v, depth + 1) for v in list.__iter__(cast(list[object], value)))  # exactly list
         elif kind is float:
-            assert isinstance(value, float)
-            if value != value or value in (float("inf"), float("-inf")):
+            number = cast(float, value)  # kind is exactly float
+            if number != number or number in (float("inf"), float("-inf")):
                 return "numbers must be finite"
         elif kind is str:
-            assert isinstance(value, str)
-            if len(value) > MAX_ARGS_BYTES:
+            if len(cast(str, value)) > MAX_ARGS_BYTES:  # kind is exactly str
                 return f"arguments are larger than {MAX_ARGS_BYTES} bytes"
         elif kind not in (int, bool, type(None)):
             return "arguments must be plain JSON values"
@@ -465,7 +469,9 @@ class ToolRegistry:
                                             for name, spec in self.catalogue.tools.items()}
         self._out_validators: dict[str, Any] = {name: _StrictValidator(spec.output_schema)
                                                 for name, spec in self.catalogue.tools.items()}
-        self._abandoned: set[asyncio.Task[Any]] = set()
+        self._abandoned: set[asyncio.Task[Any]] = set()  # at most ABANDONED_TASKS_PER_TOOL_MAX per tool (H-20)
+        self._stuck: Counter[str] = Counter()  # handlers per tool that ignored cancellation and are still running
+        self._shut_off: set[str] = set()  # tools with too many stuck handlers: answered `tool_stuck` until they end
         self.refusals = 0  # calls refused at the boundary since start
 
     def register(self, name: str, handler: Handler) -> None:
@@ -506,6 +512,7 @@ class ToolRegistry:
         self.refusals += 1
         try:
             keys = _show_keys(dict.keys(args), dict.__len__(args)) if isinstance(args, dict) else type(args).__name__
+        # broad-except: the caller's arguments may be a hostile object; naming its keys must never fail a refusal
         except Exception:
             keys = "<unreadable>"
         log.warning("REFUSED tool=%r channel=%s band=%s code=%s arg_keys=%s%s", shown, caller.channel.value,
@@ -517,7 +524,8 @@ class ToolRegistry:
         problem = _plain_json_problem(args)
         if problem is not None:
             return problem
-        assert isinstance(args, dict) and spec.input_schema is not None
+        if not isinstance(args, dict) or spec.input_schema is None:  # not an assert: python -O removes those
+            return "arguments must be an object"
         first = next(iter(self._validators[name].iter_errors(args)), None)
         if first is not None:
             if first.validator == "additionalProperties":
@@ -532,6 +540,7 @@ class ToolRegistry:
         shown = name[:64] if isinstance(name, str) else f"<{type(name).__name__}>"
         try:
             return await self._call(name, shown, args, caller)
+        # broad-except: call() promises never to raise; anything unexpected becomes an `internal` result
         except Exception:
             log.exception("tool registry failed handling %r", shown)
             return self._result(shown, "internal")
@@ -552,26 +561,36 @@ class ToolRegistry:
             args = {}
         try:
             problem = self._argument_problem(name, spec, args)
-        except Exception as e:  # arguments so odd that checking them failed: refused, never raised
+        # broad-except: arguments so odd that checking them failed are refused, never raised
+        except Exception as e:
             problem = f"arguments could not be checked ({type(e).__name__})"
         if problem is not None:
             return self._refuse(name, "invalid_arguments", caller, args, problem)
-        assert isinstance(args, dict)
+        if not isinstance(args, dict):  # unreachable after _argument_problem; kept as a real check
+            return self._refuse(name, "invalid_arguments", caller, args, "arguments must be an object")
         handler = self._handlers.get(name)
         if handler is None:
             log.info("tool %s asked for but has no handler yet", name)
             return self._result(name, "not_built")
+        if name in self._shut_off:
+            return self._result(name, "tool_stuck")
         task: asyncio.Task[Any] = asyncio.ensure_future(handler(args, caller))
         try:
             done, _ = await asyncio.wait({task}, timeout=self.timeout_for(name, args))
-        except BaseException:
+        except BaseException:  # broad-except: cancel the handler on any exit (including cancellation), then re-raise
             task.cancel()
             raise
         if not done:
             # Answer now, whatever the handler does next: its late result is discarded.
             task.cancel()
-            self._abandoned.add(task)
-            task.add_done_callback(self._forget)
+            self._stuck[name] += 1
+            if self._stuck[name] <= ABANDONED_TASKS_PER_TOOL_MAX:
+                self._abandoned.add(task)
+            elif name not in self._shut_off:
+                self._shut_off.add(name)
+                log.error("tool %s has more than %d handlers that ignore cancellation; it is shut off until they end",
+                          name, ABANDONED_TASKS_PER_TOOL_MAX)
+            task.add_done_callback(functools.partial(self._forget, tool=name))
             log.warning("tool %s timed out", name)
             return self._result(name, "timeout")
         try:
@@ -597,6 +616,7 @@ class ToolRegistry:
         except asyncio.CancelledError:
             log.warning("tool %s: its handler was cancelled", name)
             return self._result(name, "internal")
+        # broad-except: a handler bug becomes an `internal` result, never an exception in the agent loop
         except Exception:
             log.exception("tool %s failed", name)
             return self._result(name, "internal")
@@ -612,7 +632,11 @@ class ToolRegistry:
         log.info("tool %s ok (channel %s)", name, caller.channel.value)
         return self._result(name, "ok", content=content, attachments=tuple(attachments))
 
-    def _forget(self, task: asyncio.Task[Any]) -> None:
+    def _forget(self, task: asyncio.Task[Any], tool: str) -> None:
         self._abandoned.discard(task)
+        self._stuck[tool] -= 1
+        if self._stuck[tool] <= 0:
+            del self._stuck[tool]
+            self._shut_off.discard(tool)
         if not task.cancelled() and task.exception() is not None:
             log.info("abandoned tool handler ended with %s", type(task.exception()).__name__)

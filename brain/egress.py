@@ -49,8 +49,6 @@ import sys
 import threading
 import time
 import weakref
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -240,7 +238,7 @@ def _audit(event: str, args: tuple[Any, ...]) -> None:
     if event == "socket.bind":  # remembered even while no policy is active, so own ports are always known
         try:
             _bound.add(args[0])
-        except TypeError:
+        except TypeError:  # swallowed: an unhashable address in a bind event cannot be remembered; nothing to do
             pass
         return
     policy = _policy
@@ -325,6 +323,7 @@ def self_test() -> list[str]:
                 await asyncio.wait_for(asyncio.get_running_loop().sock_connect(sock, SELF_TEST_ADDRESS), 0.5)
             except EgressDenied:
                 return
+            # broad-except: any other error means the guard did not refuse; recorded as a self-test failure
             except Exception as e:
                 failures.append(f"asyncio sock_connect was not refused ({type(e).__name__})")
             else:
@@ -337,14 +336,15 @@ def self_test() -> list[str]:
                 sock.setblocking(False)
                 try:
                     sock.connect(SELF_TEST_ADDRESS)
-                except EgressDenied:
+                except EgressDenied:  # swallowed: this is the refusal the self-test expects
                     pass
                 except OSError as e:
                     failures.append(f"blocking connect was not refused ({type(e).__name__})")
                 else:
                     failures.append("blocking connect was not refused")
             asyncio.run(through_event_loop())
-        except Exception as e:  # the test itself broke: that is a failure too
+        # broad-except: the self-test itself broke, which is a failure too (reported, never raised)
+        except Exception as e:
             failures.append(f"self-test could not run ({type(e).__name__}: {e})")
         finally:
             _quiet.on = False
@@ -390,21 +390,6 @@ def install_guard(policy: EgressPolicy) -> None:
              f"; removed proxy settings {removed} from the environment" if removed else "")
     if removed:
         log.warning("proxy environment variables %s were set and have been removed for this process", removed)
-
-
-@contextmanager
-def testing_guard(policy: EgressPolicy) -> Iterator[None]:
-    """FOR TESTS ONLY: enforce `policy` inside the block, then restore whatever was in force before.
-    The brain itself never calls this; `install_guard` is its only way in, and that cannot be undone."""
-    global _policy
-    previous = _policy
-    _activate(policy)
-    try:
-        yield
-    finally:
-        with _lock:
-            _resolved.clear()
-            _policy = previous
 
 
 def guard_active() -> bool:

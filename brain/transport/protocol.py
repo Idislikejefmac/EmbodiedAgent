@@ -7,16 +7,20 @@ This module is body-agnostic transport: it must not know which body is connected
 from __future__ import annotations
 
 import json
+import math
 import re
 import struct
 import time
 import zlib
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any, NoReturn
 
 from jsonschema import Draft202012Validator, validators
 
 from ..config import REPO_ROOT
+from ..limits import (HEARTBEAT_MS_MAX, HEARTBEAT_MS_MIN, LINK_TIMEOUT_S_MAX, LIVENESS_TIMEOUT_MS_MAX,
+                      LIVENESS_TIMEOUT_MS_MIN)
 
 PROTOCOL_VERSION = 0
 SCHEMA_PATH = REPO_ROOT / "protocol" / "v0.schema.json"
@@ -80,6 +84,32 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 HEARTBEAT_MS = 2000
 LIVENESS_TIMEOUT_MS = 6000
 
+def check_seconds(name: str, value: object, low: float, high: float) -> float:
+    """value as a float if it is a real, finite number of seconds from low to high (a bool is not one).
+    TypeError for the wrong type, ValueError for the wrong range; the message names the argument (H-12)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a number of seconds, not {type(value).__name__}")
+    if not math.isfinite(value) or not low <= value <= high:
+        raise ValueError(f"{name} must be from {low:g} to {high:g} seconds, not {str(value)[:30]}")
+    return float(value)
+
+
+def check_link_timing(heartbeat_s: object, liveness_s: object) -> tuple[float, float]:
+    """The heartbeat interval and liveness timeout a Link or BrainServer may be built with: the ranges of the
+    hello settings in the schema, and liveness strictly above the heartbeat so that a healthy peer is never
+    dropped (H-12). Without these a heartbeat of 0 is a busy loop and a liveness below it drops every peer."""
+    hb = check_seconds("heartbeat_s", heartbeat_s, HEARTBEAT_MS_MIN / 1000, HEARTBEAT_MS_MAX / 1000)
+    lv = check_seconds("liveness_s", liveness_s, LIVENESS_TIMEOUT_MS_MIN / 1000, LIVENESS_TIMEOUT_MS_MAX / 1000)
+    if lv <= hb:
+        raise ValueError(f"liveness_s ({lv:g}) must be greater than heartbeat_s ({hb:g})")
+    return hb, lv
+
+
+def check_timeout(name: str, value: object) -> float:
+    """A handshake, binary or send timeout: above 0 and at most LINK_TIMEOUT_S_MAX seconds."""
+    return check_seconds(name, value, 1e-3, LINK_TIMEOUT_S_MAX)
+
+
 # WebSocket close codes (section 1).
 CLOSE_NORMAL = 1000
 CLOSE_GOING_AWAY = 1001
@@ -110,6 +140,10 @@ def valid_id(x: object) -> int | None:
     return x if isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= MAX_ID else None
 
 
+class UnknownErrorCode(ValueError):
+    """A ProtocolError was built with a code that is not in ERROR_CODES (a bug in the caller, never peer input)."""
+
+
 class ProtocolError(Exception):
     """A protocol violation to be reported to the peer as an `error` message.
 
@@ -118,7 +152,8 @@ class ProtocolError(Exception):
 
     def __init__(self, code: str, message: str, *, fatal: bool = False, reply_to: int | None = None,
                  silent: bool = False):
-        assert code in ERROR_CODES, code
+        if code not in ERROR_CODES:
+            raise UnknownErrorCode(f"{str(code)[:64]!r} is not a protocol error code")
         message = _CONTROL.sub("?", message)[:500]  # error.message may not carry control characters
         super().__init__(f"{code}: {message}")
         self.code = code
@@ -129,11 +164,12 @@ class ProtocolError(Exception):
 
 
 @lru_cache(maxsize=1)
-def schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+def schema() -> dict[str, Any]:
+    loaded: dict[str, Any] = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    return loaded
 
 
-def _is_strict_integer(checker, instance) -> bool:
+def _is_strict_integer(checker: object, instance: object) -> bool:
     """JSON Schema counts 1.0 as an integer; v0 does not: ids, timestamps and counts must be written as
     integers, so `1.0` is refused instead of being echoed back as `reply_to: 1.0`."""
     return isinstance(instance, int) and not isinstance(instance, bool)
@@ -159,23 +195,31 @@ def schema_errors(msg: object) -> list[str]:
     ]
 
 
-def _reject_constant(name: str):
+def _reject_constant(name: str) -> NoReturn:
     raise ValueError(f"{name} is not a finite number")
+
+
+def _finite_float(text: str) -> float:
+    """parse_float hook: a literal such as 1e400 overflows to infinity, which B1 forbids like NaN (X01-F01)."""
+    value = float(text)
+    if value in (float("inf"), float("-inf")):
+        raise ValueError("a number is too large to be finite")
+    return value
 
 
 def decode(text: str) -> object:
     """json.loads that rejects NaN and Infinity and survives deep nesting. Raises ProtocolError(bad_json)."""
     try:
-        return json.loads(text, parse_constant=_reject_constant)
+        return json.loads(text, parse_constant=_reject_constant, parse_float=_finite_float)
     except (ValueError, RecursionError) as e:
         raise ProtocolError("bad_json", f"not JSON: {type(e).__name__}: {str(e)[:200]}") from None
 
 
-def encode(msg: dict) -> str:
+def encode(msg: dict[str, Any]) -> str:
     return json.dumps(msg, separators=(",", ":"), allow_nan=False)
 
 
-def validate(msg: object, *, sender: str | None = None) -> dict:
+def validate(msg: object, *, sender: str | None = None) -> dict[str, Any]:
     """Check one decoded JSON message against v0. Returns it, or raises ProtocolError.
 
     `sender` is the role the message came from; when given, direction, the sender's own
@@ -226,8 +270,8 @@ def validate(msg: object, *, sender: str | None = None) -> dict:
     return msg
 
 
-def make_message(mtype: str, msg_id: int, payload: dict, *, sender: str, ts: int,
-                 reply_to: int | None = None, other_ts: int | None = None) -> dict:
+def make_message(mtype: str, msg_id: int, payload: dict[str, Any], *, sender: str, ts: int,
+                 reply_to: int | None = None, other_ts: int | None = None) -> dict[str, Any]:
     """Build an envelope. The sender stamps its own clock; `other_ts` copies the peer's (replies)."""
     msg = {
         "v": PROTOCOL_VERSION, "type": mtype, "id": msg_id, "reply_to": reply_to,
@@ -238,7 +282,7 @@ def make_message(mtype: str, msg_id: int, payload: dict, *, sender: str, ts: int
     return msg
 
 
-def has_binary(msg: dict) -> bool:
+def has_binary(msg: dict[str, Any]) -> bool:
     """True when a binary frame must follow this JSON message (section 5.2)."""
     return msg["type"] in BINARY_TYPE_CODES and msg["payload"].get("byte_length", 0) > 0
 
@@ -252,13 +296,47 @@ class BinaryFrame:
     flags: int = 0
 
 
+class FrameValueError(ValueError):
+    """A message id, timestamp or binary length outside what protocol v0 allows (caller bug, never peer input)."""
+
+
+class FrameTypeError(TypeError):
+    """A message field of the wrong Python type (a bool is not an int here; text is not bytes)."""
+
+
+def check_timestamp(ts: object) -> int:
+    """ts if it is an int from 0 to 2^53-1 microseconds, else FrameTypeError or FrameValueError."""
+    if not isinstance(ts, int) or isinstance(ts, bool):
+        raise FrameTypeError(f"ts must be an int, not {type(ts).__name__}")
+    if not 0 <= ts <= MAX_TS:
+        raise FrameValueError("ts must be 0 to 2^53-1 microseconds")
+    return ts
+
+
+def check_message_id(msg_id: object) -> int:
+    """msg_id if it is an int from 1 to 2^32-1, else FrameTypeError or FrameValueError."""
+    if not isinstance(msg_id, int) or isinstance(msg_id, bool):
+        raise FrameTypeError(f"msg_id must be an int, not {type(msg_id).__name__}")
+    if not 1 <= msg_id <= MAX_ID:
+        raise FrameValueError("msg_id must be 1 to 2^32-1")
+    return msg_id
+
+
+def check_data(data: object) -> bytes | bytearray | memoryview:
+    """data if it is bytes-like (bytes, bytearray or memoryview), else FrameTypeError."""
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise FrameTypeError(f"binary data must be bytes, not {type(data).__name__}")
+    return data
+
+
 def pack_binary(mtype: str, msg_id: int, ts: int, data: bytes) -> bytes:
     if mtype not in BINARY_TYPE_CODES:
-        raise ValueError(f"type {mtype!r} has no binary frame")
-    if not 0 <= ts <= MAX_TS:
-        raise ValueError("ts must be 0 to 2^53-1 microseconds")
+        raise FrameValueError(f"type {mtype!r} has no binary frame")
+    check_message_id(msg_id)
+    check_timestamp(ts)
+    check_data(data)
     if len(data) > MAX_BINARY_BYTES:
-        raise ValueError("binary data over 8 MiB")
+        raise FrameValueError("binary data over 8 MiB")
     return BINARY_HEADER.pack(PROTOCOL_VERSION, BINARY_TYPE_CODES[mtype], 0, msg_id, ts, len(data)) + data
 
 
@@ -272,8 +350,10 @@ def unpack_binary(frame: bytes) -> BinaryFrame:
         raise ProtocolError("unsupported_version", f"binary frame v={v}", fatal=True)
     if code not in BINARY_TYPE_NAMES:
         raise ProtocolError("bad_binary", f"unknown binary type code {code}", fatal=True)
-    if ts < 0:
-        raise ProtocolError("bad_binary", f"negative timestamp {ts}", fatal=True)
+    if not 0 <= ts <= MAX_TS:
+        raise ProtocolError("bad_binary", f"timestamp {ts} outside 0 to 2^53-1", fatal=True)
+    if not 1 <= msg_id <= MAX_ID:
+        raise ProtocolError("bad_binary", f"message id {msg_id} outside 1 to 2^32-1", fatal=True)
     if length > MAX_BINARY_BYTES:
         raise ProtocolError("too_large", f"binary length {length} over 8 MiB", fatal=True)
     if length != len(frame) - BINARY_HEADER.size:
@@ -282,7 +362,7 @@ def unpack_binary(frame: bytes) -> BinaryFrame:
     return BinaryFrame(BINARY_TYPE_NAMES[code], msg_id, ts, bytes(frame[BINARY_HEADER.size:]), flags)
 
 
-def check_pair(msg: dict, frame: BinaryFrame, *, sender: str) -> None:
+def check_pair(msg: dict[str, Any], frame: BinaryFrame, *, sender: str) -> None:
     """The binary frame must match the JSON message it follows (section 5.2)."""
     want_ts = msg[ts_field(sender)]
     if (frame.type != msg["type"] or frame.id != msg["id"] or frame.ts != want_ts

@@ -108,7 +108,7 @@ class Manifest:
     def card_of(self, entry_id: str) -> str | None:
         e = self.entries.get(entry_id)
         if e is not None:
-            return e["card"]
+            return str(e["card"])
         for g in self.gates:
             if f"gate.{g['name']}" == entry_id:
                 return g.get("card")
@@ -124,8 +124,8 @@ def load_manifest(path: Path | None = None, text: str | None = None) -> Manifest
     if text is None:
         try:
             raw = p.read_bytes()
-        except OSError as e:
-            raise ManifestError(f"cannot read the manifest {p}: {e}") from None
+        except OSError as err:
+            raise ManifestError(f"cannot read the manifest {p}: {err}") from None
         if len(raw) > MANIFEST_MAX_BYTES:
             raise ManifestError(f"manifest {p} is over {MANIFEST_MAX_BYTES} bytes")
         try:
@@ -134,8 +134,8 @@ def load_manifest(path: Path | None = None, text: str | None = None) -> Manifest
             raise ManifestError(f"manifest {p} is not UTF-8") from None
     try:
         doc = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as e:
-        raise ManifestError(f"manifest {p} is not valid TOML: {e}") from None
+    except tomllib.TOMLDecodeError as err:
+        raise ManifestError(f"manifest {p} is not valid TOML: {err}") from None
     problems: list[str] = []
     if doc.get("schema") != SCHEMA_VERSION:
         problems.append(f"schema must be {SCHEMA_VERSION}")

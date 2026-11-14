@@ -137,6 +137,15 @@ class ClockSync:
                    _float(d.get("drift_ppm"), "drift_ppm", optional=True))
 
 
+def wrap_angle_rad(angle: float) -> float:
+    """The same direction as `angle`, in (-pi, pi]: half-open, so a turn of exactly half a circle is +pi, never
+    -pi (H-31). Raises ValueError for NaN and infinity."""
+    if not math.isfinite(angle):
+        raise ValueError("an angle must be finite")
+    wrapped = math.remainder(angle, 2.0 * math.pi)  # [-pi, pi]
+    return math.pi if wrapped == -math.pi else wrapped
+
+
 # ---- pose --------------------------------------------------------------------------------------------
 
 
@@ -175,7 +184,7 @@ class Pose:
         s, c = 2.0 * (x * z + w * y), 1.0 - 2.0 * (x * x + y * y)
         if math.hypot(s, c) < 1e-6:
             return None
-        return math.atan2(s, c)
+        return wrap_angle_rad(math.atan2(s, c))
 
     @property
     def heading_deg(self) -> float | None:

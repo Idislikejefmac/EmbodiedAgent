@@ -4,6 +4,17 @@ Status: merged register, 13 Nov 2026. Owner: Jeff. **Scope (Jeff, 13 Nov 2026):*
 
 How to answer: write "DEC-nnn: yes" (accept the recommendation) or your own answer, with the date, in this file or in the plan. A session then applies it to the plan and the test documents.
 
+## Answered by Jeff (13 Nov 2026)
+
+**Scope guidance (Jeff):** this is a fun project to see what is possible, in a small, siloed footprint. Do not over-index on post-development concerns (rollout, legal, multi-user hardening). Push those to the start of the next phase, which is full embodiment: a wheeled, fully agent-controlled robot. During development, favour what helps find and fix problems fast.
+
+| ID | Answer |
+| --- | --- |
+| DEC-068 (spend cap) | Use the $200 of API credit in "Jeff's Individual Org" when the brain needs it, and use the Ultra subscription for the development sessions in the meantime. Work out real costs from expected usage: done in `docs/cost-estimate.md` (normal use is pennies a day; a runaway loop is the real risk). Interim caps recommended there: $1 per session, $5 per day, $10 hard stop, 300 requests an hour, plus a $25 monthly limit on a dedicated key in the console. |
+| DEC-025 (full prompts in the log) | Yes during development: keep full prompts and responses at full fidelity so any unexpected outcome has root-cause data. Re-evaluate when development ends. Implementation: a separate private capture file, development-only flag, size and age bounded, git-ignored, never in the general event stream. Caveat: it records whatever the microphone hears, so it is Jeff-only until others agree. |
+| DEC-106 (unknown config keys) | Explained and accepted as an "answer before we move forward" item during development: if `config.toml` has a key the brain does not know (a typo such as `sesion_usd`), the brain stops at start with a clear message that names the key and suggests the nearest valid one, instead of silently running without that setting. Post-development handling is left for later. |
+
+Still open and not urgent under the scope guidance above: DEC-020 and DEC-021 (the company laptop and where the project lives), and the rest of the register. They matter most when family data or a wheeled robot enters the picture.
 ## Top 10 decisions to make first
 
 These unblock the next work (the hardening pass, X-01 stage 1, P0-07) or close a window that gets harder later.

@@ -60,8 +60,9 @@ ANY_ERROR = set(p.ERROR_CODES)
 def gen_invalid(g: Gen) -> list[Case]:
     out: list[Case] = []
     hello = _pick(g, "hello", p.BODY)
-    for name, value in (("id_string", "1"), ("id_float", 1.0), ("id_bool", True), ("id_zero", 0),
-                        ("id_too_big", p.MAX_ID + 1), ("id_none", None)):
+    bad_ids: tuple[tuple[str, Any], ...] = (("id_string", "1"), ("id_float", 1.0), ("id_bool", True), ("id_zero", 0),
+                                            ("id_too_big", p.MAX_ID + 1), ("id_none", None))
+    for name, value in bad_ids:
         m = copy.deepcopy(hello)
         m["id"] = value
         out.append(invalid(name, frame(m, p.BODY, {"bad_envelope"}), "N1" if "too_big" not in name else "N6"))
@@ -96,9 +97,7 @@ def gen_invalid(g: Gen) -> list[Case]:
     pose = _pick(g, "pose", p.BODY)
     pose["payload"]["position_m"][0] = 12345.678
     text = json.dumps(pose).replace("12345.678", "1e400")
-    out.append(invalid("overflow_to_infinity", frame(text, p.BODY, ANY_ERROR), "N6",
-                       known_defect="X01-F01: protocol.decode turns 1e400 into inf and validate accepts it; "
-                                    "B1 says numbers must be finite (NaN is refused, overflow is not)"))
+    out.append(invalid("overflow_to_infinity", frame(text, p.BODY, ANY_ERROR), "N6"))
     return out
 
 

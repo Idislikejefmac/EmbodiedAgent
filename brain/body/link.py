@@ -16,6 +16,7 @@ import logging
 
 from websockets.exceptions import ConnectionClosed
 
+from ..logsafe import short_items, short_repr
 from ..transport.clock import ClockOffsetEstimator
 from ..transport.link import Link, LinkClosed, Received, RequestError
 from ..transport.protocol import now_us
@@ -83,7 +84,7 @@ class LinkBody(Body):
     async def wait_connected(self, timeout_s: float) -> bool:
         try:
             await asyncio.wait_for(self._connected.wait(), timeout_s)
-        except TimeoutError:
+        except TimeoutError:  # swallowed: the caller asked how long to wait; the answer is `connected` below
             pass
         return self.connected
 
@@ -106,7 +107,9 @@ class LinkBody(Body):
         self._clock = link.clock
         self._connected.set()
         hello = link.peer_hello or {}
-        log.info("body connected: capabilities=%r commands=%r", hello.get("capabilities"), hello.get("commands", []))
+        caps, cmds = hello.get("capabilities") or [], hello.get("commands") or []
+        log.info("body connected: capabilities=%s commands=%s", short_items(caps, len(caps)),
+                 short_items(cmds, len(cmds)))
         self._events.publish(BodyEvent("link_state", {"connected": True}, now_us(), source="adapter"))
 
     def _on_disconnect(self, link: Link) -> None:
@@ -126,9 +129,9 @@ class LinkBody(Body):
                 return
             # Names and keys only at INFO, with %r: event data may be personal later.
             if name in DIAGNOSTIC_EVENTS:
-                link.log.info("event %s %r", name, data)
+                link.log.info("event %s %s", name, short_repr(data, 500))
             else:
-                link.log.info("event %s (data keys %r)", name, sorted(data))
+                link.log.info("event %s (data keys %s)", name, short_items(data, len(data)))
             self._events.publish(BodyEvent(name, data, self._brain_time(msg["ts_body"], r.rx_us), msg["ts_body"]))
         else:
             link.log.debug("%s id=%d: nothing in the brain consumes this yet", r.type, msg["id"])

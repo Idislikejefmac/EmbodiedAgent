@@ -33,6 +33,7 @@ v0: breaking changes are allowed until gate G2, then the interface freezes and i
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 
 from .streams import BodyStream
@@ -42,6 +43,30 @@ INTERFACE_VERSION = 0
 
 MAX_EDGE_PX_RANGE = (64, 4096)  # capture_image bounds, as in protocol/v0.md section 8
 MAX_POSE_RATE_HZ = 30.0
+
+
+def check_real(name: str, value: object, *, low: float | None = None, high: float | None = None,
+               low_open: bool = False) -> float:
+    """`value` as a float if it is a finite int or float (a bool is not a number here: TypeError), within the
+    optional range (ValueError). The message names the parameter and never echoes the value."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a number, not {type(value).__name__}")
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+    if low is not None and (value <= low if low_open else value < low):
+        raise ValueError(f"{name} must be {'above' if low_open else 'at least'} {low:g}")
+    if high is not None and value > high:
+        raise ValueError(f"{name} must be at most {high:g}")
+    return float(value)
+
+
+def check_whole(name: str, value: object, *, low: int = 1) -> int:
+    """`value` if it is an int (not a bool) of at least `low`; TypeError or ValueError otherwise."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be a whole number, not {type(value).__name__}")
+    if value < low:
+        raise ValueError(f"{name} must be at least {low}")
+    return value
 
 
 class BodyError(Exception):

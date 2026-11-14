@@ -130,7 +130,7 @@ async def _op(body: SimBody, ctx: Ctx, op: str, arg: Any) -> Any:
         return await body.navigate(NavGoal(frame_id=body.frame_id, position_m=(arg[0], 0.0, arg[1])))
     if op in ("play_audio", "play_audio_raw"):
         rate = 16000 if op == "play_audio" else arg
-        chunk = AudioChunk(pcm=b"\x00\x00" * 160, sample_rate_hz=rate, channels=1, t_us=0, seq=0)
+        chunk = AudioChunk(stream_id=0, seq=0, sample_rate_hz=rate, channels=1, data=b"\x00\x00" * 160, t_us=0)
         return await body.play_audio(chunk, utterance_id="u-play", final=True)
     if op == "reset_frame":
         return body.reset_frame()

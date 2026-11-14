@@ -86,7 +86,7 @@ class ClockOffset(
         nowUs = t3Local
         best = samples.minByOrNull { costUs(it, t3Local) }
         count++
-        history.addLast(t3Local to estimateUs!!)
+        estimateUs?.let { history.addLast(t3Local to it) }  // always set here: best was just assigned
         while (history.size > historyCap) history.removeFirst()
         return s
     }

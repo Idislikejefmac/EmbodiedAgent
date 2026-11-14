@@ -69,10 +69,10 @@ def test_bad_runner_arguments_are_refused_with_usage(argv, capsys):
 
 
 def test_the_runner_refuses_to_run_under_a_wider_guard():
-    from brain import egress
     from brain.egress import EgressPolicy
+    from fakes.egress_policy import testing_guard
 
-    with egress.testing_guard(EgressPolicy.from_hosts(["api.example.org"])):
+    with testing_guard(EgressPolicy.from_hosts(["api.example.org"])):
         with pytest.raises(runner.HarnessError, match="loopback-only"):
             runner.preflight()
 

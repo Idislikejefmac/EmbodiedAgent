@@ -22,6 +22,7 @@ import pytest
 from brain import egress
 from brain.config import load_config
 from brain.egress import EgressDenied, EgressPolicy
+from fakes.egress_policy import testing_guard
 
 BRAIN = Path(__file__).resolve().parent.parent / "brain"
 POLICY = EgressPolicy.from_hosts(["api.anthropic.com", "speech.example:8443"])
@@ -120,7 +121,7 @@ def test_the_test_suite_itself_runs_under_the_guard():
 
 def test_blocking_connections_to_unlisted_destinations_fail(caplog):
     caplog.set_level(logging.WARNING, logger="brain.egress")
-    with egress.testing_guard(POLICY):
+    with testing_guard(POLICY):
         with pytest.raises(EgressDenied):
             socket.create_connection((UNLISTED_NAME, 443), timeout=5)
         with pytest.raises(EgressDenied):
@@ -177,7 +178,7 @@ def test_asyncio_connections_to_unlisted_destinations_fail():
                 with pytest.raises(EgressDenied):
                     loop._proactor.sendto(udp, b"x", 0, (UNLISTED_IP, 9))
 
-    with egress.testing_guard(POLICY):
+    with testing_guard(POLICY):
         run(go())
 
 
@@ -191,7 +192,7 @@ def test_websocket_client_to_an_unlisted_host_fails():
                 await connect(url, open_timeout=5)
             assert isinstance(e.value, EgressDenied) or "allowlist" in str(e.value)
 
-    with egress.testing_guard(POLICY):
+    with testing_guard(POLICY):
         run(go())
 
 
@@ -206,7 +207,7 @@ def test_loopback_to_a_port_this_process_listens_on_works_under_an_empty_policy(
             pass
         server.close()
 
-    with egress.testing_guard(EgressPolicy()):
+    with testing_guard(EgressPolicy()):
         run(go())  # a fresh event loop also needs its own loopback socket pair: that must keep working
 
 
@@ -214,7 +215,7 @@ def test_loopback_to_another_process_is_refused_unless_its_port_is_named():
     """The proxy hole found in review: with the guard seeing only "127.0.0.1", a local listener (a proxy,
     an SSH or adb forward) received the traffic and could carry it anywhere."""
     with ForeignListener() as other:
-        with egress.testing_guard(POLICY):
+        with testing_guard(POLICY):
             with pytest.raises(EgressDenied, match="loopback port"):
                 socket.create_connection(("127.0.0.1", other.port), timeout=5)
 
@@ -225,7 +226,7 @@ def test_loopback_to_another_process_is_refused_unless_its_port_is_named():
             run(go())
         assert other.verdict() == "NOTHING"
     with ForeignListener() as other:  # `python -m brain probe` names the port it dials
-        with egress.testing_guard(EgressPolicy.from_hosts([], local_ports={other.port})):
+        with testing_guard(EgressPolicy.from_hosts([], local_ports={other.port})):
             with socket.create_connection(("127.0.0.1", other.port), timeout=5) as conn:
                 conn.sendall(b"hello")
         assert other.verdict().startswith("RECEIVED")
@@ -247,7 +248,7 @@ def test_a_proxy_setting_cannot_carry_traffic_out(monkeypatch):
 
     with ForeignListener() as proxy:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": f"http://127.0.0.1:{proxy.port}"}))
-        with egress.testing_guard(POLICY):
+        with testing_guard(POLICY):
             with pytest.raises((urllib.error.URLError, OSError)) as e:
                 opener.open("http://203.0.113.1/exfil?battery=87&pose=1,2,3", timeout=3)
         assert "allowlist" in str(e.value)
@@ -263,7 +264,7 @@ def test_addresses_of_a_listed_name_are_allowed_on_its_port_only_and_expire(monk
                 (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::7", port, 0, 0))]
 
     monkeypatch.setattr(egress, "_real_getaddrinfo", fake_resolver)
-    with egress.testing_guard(POLICY):
+    with testing_guard(POLICY):
         with pytest.raises(EgressDenied):
             egress._check_address(POLICY, socket.AF_INET, ("192.0.2.7", 443))  # not looked up yet
         assert len(socket.getaddrinfo("api.anthropic.com", 443)) == 2
@@ -279,7 +280,7 @@ def test_addresses_of_a_listed_name_are_allowed_on_its_port_only_and_expire(monk
         socket.getaddrinfo("api.anthropic.com", 443)  # a fresh lookup renews it
         egress._check_address(POLICY, socket.AF_INET, ("192.0.2.7", 443))
         monkeypatch.undo()
-    with egress.testing_guard(POLICY):  # what was learned does not outlive the policy it was learned under
+    with testing_guard(POLICY):  # what was learned does not outlive the policy it was learned under
         with pytest.raises(EgressDenied):
             egress._check_address(POLICY, socket.AF_INET, ("192.0.2.7", 443))
 
@@ -292,7 +293,7 @@ def test_install_is_one_shot_and_cannot_be_widened():
     assert egress._policy is current
     with pytest.raises(TypeError):
         egress.install_guard(["api.anthropic.com"])
-    with egress.testing_guard(EgressPolicy.from_hosts(["only.example"])):  # the tests' own way in restores it
+    with testing_guard(EgressPolicy.from_hosts(["only.example"])):  # the tests' own way in restores it
         assert egress._policy.allowed == frozenset({("only.example", 443)})
     assert egress._policy is current
 
@@ -345,6 +346,7 @@ NETWORK_MODULES = {
     "google", "azure", "zmq", "pika", "redis", "pymongo", "psycopg", "psycopg2", "webbrowser", "smbprotocol", "nntplib",
     "_overlapped", "_winapi", "winreg",
 }
+UNSAFE_LOADER_MODULES = {"pickle", "_pickle", "cPickle", "cloudpickle", "dill", "marshal", "shelve"}  # H-22: code runs on load
 PROCESS_MODULES = {"subprocess", "multiprocessing", "ctypes", "_ctypes", "pty", "pexpect", "sh", "cffi", "_posixsubprocess"}
 CONNECT_CALLS = {
     "open_connection", "create_connection", "create_datagram_endpoint", "open_unix_connection",
@@ -369,6 +371,35 @@ ALLOWED = {
 }
 
 
+YAML_UNSAFE = {"unsafe_load", "unsafe_load_all", "full_load", "full_load_all"}
+
+
+def unsafe_call_names(node: ast.Call) -> set[str]:
+    """Names for calls that load code or run a shell: torch.load, a yaml loader that is not a Safe one, and
+    any call with shell= anything but the constant False (H-22)."""
+    found: set[str] = set()
+    f = node.func
+    if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+        if f.value.id == "torch" and f.attr == "load":
+            weights_only = [k for k in node.keywords if k.arg == "weights_only"]
+            if not (weights_only and isinstance(weights_only[0].value, ast.Constant)
+                    and weights_only[0].value.value is True):
+                found.add("torch.load")
+        elif f.value.id == "yaml":
+            if f.attr in YAML_UNSAFE:
+                found.add(f"yaml.{f.attr}")
+            elif f.attr in ("load", "load_all"):
+                loaders = [ast.unparse(k.value) for k in node.keywords if k.arg in ("Loader", "loader")]
+                if len(node.args) > 1:
+                    loaders.append(ast.unparse(node.args[1]))
+                if not any("Safe" in name for name in loaders):
+                    found.add(f"yaml.{f.attr}")
+    for k in node.keywords:
+        if k.arg == "shell" and not (isinstance(k.value, ast.Constant) and k.value.value is False):
+            found.add("shell=True")
+    return found
+
+
 def imports_and_calls(source: str) -> tuple[set[str], set[str]]:
     modules, calls = set(), set()
     for node in ast.walk(ast.parse(source)):
@@ -377,6 +408,12 @@ def imports_and_calls(source: str) -> tuple[set[str], set[str]]:
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             modules.add(node.module)
             modules |= {f"{node.module}.{a.name}" for a in node.names}
+        elif isinstance(node, ast.Call):
+            calls |= unsafe_call_names(node)
+            if isinstance(node.func, ast.Attribute) and node.func.attr in CONNECT_CALLS | (DYNAMIC - {"compile"}):
+                calls.add(node.func.attr)  # (a Call's func is also visited below; sets make the repeat harmless)
+            elif isinstance(node.func, ast.Name) and node.func.id in CONNECT_CALLS | DYNAMIC:
+                calls.add(node.func.id)
         elif isinstance(node, ast.Attribute) and node.attr in CONNECT_CALLS | (DYNAMIC - {"compile"}):
             calls.add(node.attr)  # `re.compile` is fine; the builtin compile() is caught as a bare name below
         elif isinstance(node, ast.Name) and node.id in CONNECT_CALLS | DYNAMIC:
@@ -390,7 +427,7 @@ def lint(root: Path, allowed: dict[str, set[str]]) -> list[str]:
         rel = path.relative_to(root).as_posix()
         modules, calls = imports_and_calls(path.read_text(encoding="utf-8-sig"))
         tops = {m for m in modules if m not in URL_PARSING_ONLY and not any(m.startswith(u + ".") for u in URL_PARSING_ONLY)}
-        used = {m.split(".")[0] for m in tops} & (NETWORK_MODULES | PROCESS_MODULES)
+        used = {m.split(".")[0] for m in tops} & (NETWORK_MODULES | PROCESS_MODULES | UNSAFE_LOADER_MODULES)
         for module in sorted(used - allowed.get(rel, set())):
             bad.append(f"{rel}: imports {module}")
         if rel != "egress.py":
@@ -433,3 +470,86 @@ def test_the_lint_catches_each_way_of_reaching_out(tmp_path):
     (tmp_path / "ok.py").write_text("from urllib.parse import urlsplit\nimport ipaddress, asyncio, json, re\n"
                                     "p = re.compile('x')\n")
     assert lint(tmp_path, {"egress.py": NETWORK_MODULES}) == sorted(f"{n}: {why}" for n, (_, why) in cases.items())
+
+
+# ---- H-22: unsafe deserialisation and shell=True; H-07: no test-only hook in the product ------------------------
+
+UNSAFE_CASES = {
+    "pk1.py": ("import pickle\n", "imports pickle"),
+    "pk2.py": ("from pickle import loads\n", "imports pickle"),
+    "pk3.py": ("import _pickle\n", "imports _pickle"),
+    "pk4.py": ("import cloudpickle\n", "imports cloudpickle"),
+    "pk5.py": ("import dill\n", "imports dill"),
+    "ma1.py": ("import marshal\n", "imports marshal"),
+    "sh1.py": ("import shelve\n", "imports shelve"),
+    "to1.py": ("import torch\nm = torch.load('model.pt')\n", "calls torch.load"),
+    "ym1.py": ("import yaml\nd = yaml.load(open('c.yml'))\n", "calls yaml.load"),
+    "ym2.py": ("import yaml\nd = yaml.load(x, Loader=yaml.Loader)\n", "calls yaml.load"),
+    "ym3.py": ("import yaml\nd = yaml.unsafe_load(x)\n", "calls yaml.unsafe_load"),
+    "ym4.py": ("import yaml\nd = yaml.full_load(x)\n", "calls yaml.full_load"),
+    "ym5.py": ("import yaml\nd = yaml.load_all(x, Loader=yaml.UnsafeLoader)\n", "calls yaml.load_all"),
+    "sk1.py": ("import os\nrun = os.popen\nimport subprocess\nsubprocess.run('dir', shell=True)\n",
+               "calls shell=True"),
+    "sk2.py": ("def f(sh):\n    helper('x', shell=sh)\n", "calls shell=True"),
+    "sk3.py": ("def f(sh):\n    helper('x', shell=1)\n", "calls shell=True"),
+    "im1.py": ("m = __import__('socket')\n", "calls __import__"),
+    "im2.py": ("import builtins\nm = builtins.__import__('socket')\n", "calls __import__"),
+}
+SAFE_SOURCES = {
+    "ok1.py": "import yaml\nd = yaml.safe_load(x)\n",
+    "ok2.py": "import yaml\nd = yaml.load(x, Loader=yaml.SafeLoader)\n",
+    "ok3.py": "def f():\n    helper('x', shell=False)\n",
+    "ok4.py": "import json\nd = json.load(open('f'))\n",
+    "ok5.py": "import torch\nm = torch.load('m.pt', weights_only=True)\n",
+}
+
+
+@pytest.mark.parametrize("name", sorted(UNSAFE_CASES))
+def test_each_unsafe_pattern_is_reported(name, tmp_path):
+    source, why = UNSAFE_CASES[name]
+    (tmp_path / name).write_text(source)
+    found = lint(tmp_path, {name: {"subprocess"}})  # subprocess itself is allowed here: only the pattern counts
+    assert f"{name}: {why}" in found, found
+
+
+def test_safe_forms_of_the_same_calls_pass(tmp_path):
+    for name, source in SAFE_SOURCES.items():
+        (tmp_path / name).write_text(source)
+    assert lint(tmp_path, {}) == []
+
+
+def hook_problems(root: Path) -> list[str]:
+    """Anything under `root` that names a test-only hook: `testing_guard`, or an import of the tests' packages."""
+    bad = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.ImportFrom):
+                names = [node.module or ""] + [a.name for a in node.names]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.Name):
+                names = [node.id]
+            elif isinstance(node, ast.Attribute):
+                names = [node.attr]
+            for n in names:
+                if n == "testing_guard" or n.split(".")[0] in ("fakes", "tests", "conftest"):
+                    bad.append(f"{path.relative_to(root).as_posix()}:{node.lineno}: names test-only {n!r}")
+    return bad
+
+
+def test_nothing_under_brain_names_a_test_only_hook():
+    """T-P0-06-063 (H-07): the egress policy cannot be swapped from product code."""
+    assert hook_problems(BRAIN) == []
+    assert not hasattr(egress, "testing_guard")
+
+
+def test_the_hook_lint_catches_planted_imports(tmp_path):
+    (tmp_path / "a.py").write_text("from brain.egress import testing_guard\n")
+    (tmp_path / "b.py").write_text("from brain import egress\nwith testing_guard(None):\n    pass\n")
+    (tmp_path / "c.py").write_text("from fakes import testing_guard\n")
+    (tmp_path / "d.py").write_text("import fakes.egress_policy\n")
+    (tmp_path / "ok.py").write_text("from brain import egress\negress.guard_active()\n")
+    found = hook_problems(tmp_path)
+    assert {line.split(":")[0] for line in found} == {"a.py", "b.py", "c.py", "d.py"}

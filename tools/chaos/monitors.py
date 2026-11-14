@@ -37,6 +37,7 @@ import tracemalloc
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 from brain import egress
@@ -409,7 +410,7 @@ def scan_secrets(text: str, canaries: dict[str, str]) -> list[str]:
 
 def _called_from(rel_file: str) -> bool:
     suffix = os.path.normcase(os.path.join(*rel_file.split("/")))
-    f = sys._getframe(2)
+    f: FrameType | None = sys._getframe(2)
     for _ in range(60):
         if f is None:
             return False
@@ -423,7 +424,7 @@ _THIS_FILE = os.path.normcase(os.path.abspath(__file__))
 
 
 def _importer_file() -> str:
-    f = sys._getframe(2)
+    f: FrameType | None = sys._getframe(2)
     for _ in range(60):
         if f is None:
             return ""

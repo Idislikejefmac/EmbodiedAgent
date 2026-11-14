@@ -24,18 +24,25 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import uuid
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from ..transport.protocol import now_us
 from . import sim_assets
-from .base import MAX_EDGE_PX_RANGE, MAX_POSE_RATE_HZ, Body, BodyError, BodyUnavailable
+from .base import (MAX_EDGE_PX_RANGE, MAX_POSE_RATE_HZ, Body, BodyError, BodyUnavailable, check_real,
+                   check_whole)
 from .streams import AUDIO_QUEUE, POSE_QUEUE, BodyStream, Fanout, Subscription, spawn_stream
 from .types import (ADAPTER_EVENT_NAMES, IDENTIFIER, AudioChunk, BodyEvent, BodyStatus, Capability, ClockSync, Image, NavGoal, Pose,
                     TrackingState, quaternion_from_heading)
 
 log = logging.getLogger("brain.body.sim")
+
+
+def new_frame_id() -> str:
+    """A coordinate frame no other run can share: `sim-` and a random UUID (DEC-081, H-30). 36 characters."""
+    return f"sim-{uuid.uuid4().hex}"
 
 CHUNK_S = 0.080  # microphone chunk length, as on the wire (80 ms)
 ALL_CAPABILITIES = frozenset(Capability)
@@ -52,15 +59,15 @@ class SimBody(Body):
         self._image_dir = None if image_dir is None else Path(image_dir)
         self._audio_dir = None if audio_dir is None else Path(audio_dir)
         self._capabilities = ALL_CAPABILITIES if capabilities is None else frozenset(Capability(c) for c in capabilities)
-        self.side_m = side_m
-        self.walk_speed_m_s = walk_speed_m_s
-        self.height_m = height_m
-        self.nav_speed_m_s = nav_speed_m_s
-        self.clock_offset_us = clock_offset_us
-        self.battery_pct = battery_pct
-        self.temperature_c = temperature_c
-        self._pose_queue = pose_queue
-        self._audio_queue = audio_queue
+        self.side_m = check_real("side_m", side_m)
+        self.walk_speed_m_s = check_real("walk_speed_m_s", walk_speed_m_s)
+        self.height_m = check_real("height_m", height_m)
+        self.nav_speed_m_s = check_real("nav_speed_m_s", nav_speed_m_s)
+        self.clock_offset_us = check_whole("clock_offset_us", clock_offset_us, low=-(2**63))
+        self.battery_pct = check_real("battery_pct", battery_pct)
+        self.temperature_c = check_real("temperature_c", temperature_c)
+        self._pose_queue = check_whole("pose_queue", pose_queue)
+        self._audio_queue = check_whole("audio_queue", audio_queue)
         self._running = False
         self._link_up = False
         self._events: Fanout[BodyEvent] = Fanout()
@@ -69,7 +76,7 @@ class SimBody(Body):
         self._audio: list[tuple[int, int, bytes]] = []
         self._image_count = 0
         self._stream_count = 0
-        self._frame_count = 1
+        self._frame_id = new_frame_id()
         self._tracking = TrackingState.OK
         # Motion: "walk" (the square), "hold" (standing still) or "nav" (moving to a goal).
         self._mode = "walk"
@@ -101,7 +108,7 @@ class SimBody(Body):
 
     @property
     def frame_id(self) -> str:
-        return f"sim-{self._frame_count}"
+        return self._frame_id
 
     async def start(self) -> None:
         if self._running:
@@ -116,6 +123,7 @@ class SimBody(Body):
         if not self._images or not self._audio:
             raise ValueError("SimBody needs at least one image and one WAV file")
         self._t0_us = now_us()
+        self._frame_id = new_frame_id()  # tracking starts afresh: a frame no earlier run can share (DEC-081)
         self._events = Fanout()
         self._running = True
         self.set_link(True)
@@ -196,8 +204,7 @@ class SimBody(Body):
 
     def pose_stream(self, *, rate_hz: float = 10.0) -> BodyStream[Pose]:
         self.require(Capability.POSE)
-        if not 0 < rate_hz <= MAX_POSE_RATE_HZ:
-            raise ValueError(f"rate_hz must be above 0 and at most {MAX_POSE_RATE_HZ:g}")
+        rate_hz = check_real("rate_hz", rate_hz, low=0, high=MAX_POSE_RATE_HZ, low_open=True)  # a bool is a TypeError
 
         async def produce(stream: Subscription[Pose]) -> None:
             loop = asyncio.get_running_loop()
@@ -226,7 +233,7 @@ class SimBody(Body):
 
     def reset_frame(self) -> str:
         """Tracking restarted: later poses are in a new frame that cannot be related to the old one."""
-        self._frame_count += 1
+        self._frame_id = new_frame_id()
         return self.frame_id
 
     def inject_event(self, name: str, data: dict[str, Any] | None = None) -> None:

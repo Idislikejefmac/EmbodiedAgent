@@ -547,10 +547,14 @@ object BrainLink {
                 if (clock.resets != resets) Log.w(TAG, "clock: new sample inconsistent with the estimate; dropped the older samples")
                 renewWake()
                 heartbeatReplies++
-                val line = "clock offset_ms=%.3f best_rtt_ms=%.2f rtt_ms=%.2f drift_ppm=%s (brain minus body)".format(
-                    clock.estimateUs!! / 1000, clock.best!!.rttUs / 1000.0, s.rttUs / 1000.0,
-                    clock.driftFitPpm?.let { "%.1f".format(it) } ?: "none")
-                if (heartbeatReplies % CLOCK_INFO_EVERY == 1) Log.i(TAG, line) else Log.d(TAG, line)
+                val estimate = clock.estimateUs
+                val bestRtt = clock.best?.rttUs
+                if (estimate != null && bestRtt != null) {
+                    val line = "clock offset_ms=%.3f best_rtt_ms=%.2f rtt_ms=%.2f drift_ppm=%s (brain minus body)".format(
+                        estimate / 1000, bestRtt / 1000.0, s.rttUs / 1000.0,
+                        clock.driftFitPpm?.let { "%.1f".format(it) } ?: "none")
+                    if (heartbeatReplies % CLOCK_INFO_EVERY == 1) Log.i(TAG, line) else Log.d(TAG, line)
+                }
             }
             "echo" -> if (replyTo == null) {
                 val bytes = data ?: ByteArray(0)
@@ -630,13 +634,14 @@ object BrainLink {
     }
 
     private fun logClockSummary() {
-        if (clock.best == null) return
+        val estimate = clock.estimateUs
+        if (clock.best == null || estimate == null) return
         val change = clock.maxChangeUs(sinceUs = sessionClockStartUs)
         val dev = clock.maxDevFromFitUs(sinceUs = sessionClockStartUs)
         log("clock summary: samples=$heartbeatReplies max_change_60s_ms=${change?.let { "%.3f".format(it / 1000) } ?: "n/a (under 2 min)"} " +
             "max_dev_from_fit_ms=${dev?.let { "%.3f".format(it / 1000) } ?: "n/a (under 2 min)"} " +
             "(limits 20, after 60 s warm-up) drift_ppm=${clock.driftFitPpm?.let { "%.1f".format(it) } ?: "none"} " +
-            "estimate_ms=${"%.3f".format(clock.estimateUs!! / 1000)} resets=${clock.resets}")
+            "estimate_ms=${"%.3f".format(estimate / 1000)} resets=${clock.resets}")
     }
 
     /** Command boundary, body side: validateFromBrain already refused unknown names and bad args. */

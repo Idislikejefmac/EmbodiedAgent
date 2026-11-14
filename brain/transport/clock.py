@@ -100,7 +100,9 @@ class ClockOffsetEstimator:
         self.now_us = t3_local
         self.best = min(self._samples, key=lambda s: self.cost_us(s, t3_local))
         self.count += 1
-        self.history.append((t3_local, self.estimate_us))
+        estimate = self.estimate_us
+        if estimate is not None:
+            self.history.append((t3_local, estimate))
         return sample
 
     @property

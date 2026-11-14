@@ -320,7 +320,6 @@ entry = [
   { id = "store.v0.schema.json", kind = "store", card = "P0-04", boundary = "B10" },
 
   # ---- file_site ----
-  { id = "file_site.brain/__main__.py:info", kind = "file_site", card = "P0-04", boundary = "B10" },
   { id = "file_site.brain/__main__.py:setup_logging", kind = "file_site", card = "P0-04", boundary = "B10" },
   { id = "file_site.brain/agent/tools.py:load_catalogue", kind = "file_site", card = "P0-06", boundary = "B10" },
   { id = "file_site.brain/body/sim.py:SimBody.start", kind = "file_site", card = "P0-06", boundary = "B10" },

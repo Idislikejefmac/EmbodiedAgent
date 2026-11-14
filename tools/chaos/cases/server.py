@@ -266,9 +266,7 @@ def gen_failure(g: Gen) -> list[Case]:
         failure("disconnect_mid_handshake", {"scenario": "disconnect"}, "N12"),
         failure("slow_auth", {"scenario": "slow_auth", "hello_timeout_s": 0.5}, "N12"),
         failure("event_with_3000_keys", {"scenario": "after_auth", "frames": [
-            ("event", {"name": "sensor", "data": fuzz.many_keys(3000)})]}, "N11",
-            known_defect="H-08: server._dispatch logs sorted(event data keys) in one record (server.py:320; "
-                         "also body/link.py:131); 3000 keys give a log line far over LOG_RECORD_MAX_BYTES"),
+            ("event", {"name": "sensor", "data": fuzz.many_keys(3000)})]}, "N11"),
         failure("event_flood", {"scenario": "after_auth", "quiet": 1.0, "frames": [
             ("event", {"name": "tick", "data": {"n": i}}) for i in range(150)]}, "N11",
             known_defect="H-09 / T-P0-05-047: no rate limit on valid frames; each event is one INFO log line, so "

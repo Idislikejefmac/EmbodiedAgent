@@ -3,6 +3,7 @@ the Fanout it and the link body use for streams."""
 
 import asyncio
 import math
+import re
 import wave
 
 import pytest
@@ -12,6 +13,9 @@ from brain.body import sim_assets
 from brain.body.sim import SimBody
 from brain.body.streams import Fanout
 from brain.transport.protocol import now_us
+
+
+FRAME_ID = re.compile(r"^sim-[0-9a-f]{32}$")  # sim- and a random UUID (DEC-081): unique per tracking start or reset
 
 
 def run(coro):
@@ -65,7 +69,8 @@ def test_poses_walk_forward_in_the_direction_faced():
             first = sim.pose_now()
             await asyncio.sleep(0.2)
             second = sim.pose_now()
-            assert first.heading_deg == pytest.approx(0) and first.frame_id == "sim-1"
+            assert first.heading_deg == pytest.approx(0) and FRAME_ID.match(first.frame_id)
+            assert first.frame_id == second.frame_id == sim.frame_id
             assert second.position_m[2] < first.position_m[2]  # heading 0 faces world -z
             moved = first.position_m[2] - second.position_m[2]
             assert moved == pytest.approx(0.5 * (second.t_us - first.t_us) / 1e6, abs=1e-6)
@@ -92,7 +97,9 @@ def test_tracking_loss_and_frame_reset_show_on_the_pose_stream():
             event = await anext(events)
             assert (event.name, event.data) == ("tracking_state", {"state": "lost", "reason": "insufficient_light"})
             assert sim.pose_now().tracking is TrackingState.LOST
-            assert sim.reset_frame() == "sim-2" and sim.pose_now().frame_id == "sim-2"
+            old = sim.frame_id
+            new = sim.reset_frame()
+            assert FRAME_ID.match(new) and new != old and sim.pose_now().frame_id == new
 
     run(go())
 
@@ -113,7 +120,7 @@ def test_images_come_from_the_folder_in_order_and_are_shrunk_on_request(tmp_path
             assert (one.width_px, one.height_px) == (8, 8)
             assert (two.width_px, two.height_px) == (150, 50)  # 300 x 100 shrunk to fit 150
             assert three.data == one.data and three.image_id != one.image_id  # round again
-            assert two.camera_pose is not None and two.camera_pose.frame_id == "sim-1"
+            assert two.camera_pose is not None and two.camera_pose.frame_id == sim.frame_id
             assert two.camera_pose.position_m == pytest.approx(sim.pose_now().position_m, abs=0.05)  # camera = body
 
     run(go())
@@ -215,7 +222,7 @@ def test_navigate_moves_to_the_goal_and_reports_arrival():
     async def go():
         async with SimBody(nav_speed_m_s=20.0) as sim:
             events = sim.events()
-            goal_id = await sim.navigate(NavGoal("sim-1", (3.0, 0.0, 4.0), heading_rad=1.0))
+            goal_id = await sim.navigate(NavGoal(sim.frame_id, (3.0, 0.0, 4.0), heading_rad=1.0))
             states = []
             while len(states) < 2:
                 event = await anext(events)
@@ -282,3 +289,61 @@ def test_fanout_drops_the_oldest_for_a_slow_consumer_and_counts_it():
         assert len(fan) == 0
 
     run(go())
+
+
+def test_frame_ids_are_globally_unique_across_instances_starts_and_resets():
+    """T-P0-06-075 (H-30, R-FND-57): two runs never share a frame id, so a place saved in one can never be taken
+    for a place in another."""
+    async def go():
+        seen = set()
+        for _ in range(40):
+            async with SimBody() as sim:
+                seen.add(sim.frame_id)
+                seen.add(sim.reset_frame())
+                seen.add(sim.reset_frame())
+            async with sim:  # started again: a new tracking start, a new frame
+                seen.add(sim.frame_id)
+        assert len(seen) == 40 * 4 and all(FRAME_ID.match(f) for f in seen)
+        assert all(len(f) <= 64 for f in seen)  # fits the IDENTIFIER pattern used on the wire
+
+    run(go())
+
+
+@pytest.mark.parametrize("name", ["side_m", "walk_speed_m_s", "height_m", "nav_speed_m_s", "clock_offset_us",
+                                  "battery_pct", "temperature_c", "pose_queue", "audio_queue"])
+@pytest.mark.parametrize("bad", [True, False, "1", None, [1]])
+def test_x01_f04_a_bool_or_other_non_number_is_not_a_number_for_any_sim_parameter(name, bad):
+    with pytest.raises(TypeError, match=name):
+        SimBody(**{name: bad})
+
+
+@pytest.mark.parametrize("name", ["side_m", "walk_speed_m_s", "height_m", "nav_speed_m_s", "battery_pct",
+                                  "temperature_c"])
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_sim_parameters_must_be_finite(name, bad):
+    with pytest.raises(ValueError, match=name):
+        SimBody(**{name: bad})
+
+
+@pytest.mark.parametrize("name", ["pose_queue", "audio_queue"])
+def test_sim_queue_sizes_must_be_positive(name):
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match=name):
+            SimBody(**{name: bad})
+
+
+def test_x01_f04_pose_stream_refuses_a_bool_rate():
+    async def go():
+        async with SimBody() as sim:
+            for bad in (True, False):
+                with pytest.raises(TypeError, match="rate_hz"):
+                    sim.pose_stream(rate_hz=bad)
+            stream = sim.pose_stream(rate_hz=1)  # an int is a number
+            await stream.aclose()
+
+    run(go())
+
+
+def test_subscription_sizes_refuse_a_bool():
+    with pytest.raises(TypeError):
+        Fanout().subscribe(True)

@@ -310,6 +310,7 @@ def static_checks(exps: dict[str, Experiment]) -> tuple[list[str], list[str]]:
     problems += manifest_mod.drift(m).lines()
     new, stale = lints.assert_problems()
     problems += [f"E2 {line}" for line in new + stale]
+    problems += [f"E4 {line}" for line in lints.except_problems()]
     known = m.all_ids()
     covered: set[str] = set()
     for exp in exps.values():
@@ -434,8 +435,9 @@ def summary(report: RunReport) -> str:
             if v["expected_violations_of_recorded_defects"] else ""
         lines.append(f"    {inv:26} {v['verdict']}{'' if v['verdict'] == 'held' else ' x' + str(v['violations'])}{extra}")
     xf = [r for r in report.results if r.status == "xfail"]
-    lines.append(f"  static recorded defects: {sum(lints.BASELINE.values())} asserts used for checks "
-                 f"({lints.BASELINE_FIX}, E2 baseline)")
+    if lints.BASELINE:
+        lines.append(f"  static recorded defects: {sum(lints.BASELINE.values())} asserts used for checks "
+                     f"({lints.BASELINE_FIX}, E2 baseline)")
     if xf:
         lines.append("  recorded defects reproduced (expected failures):")
         for d in sorted({r.known_defect or "" for r in xf}):

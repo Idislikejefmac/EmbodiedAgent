@@ -10,25 +10,27 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 
 from . import protocol as p
 from .clock import ClockOffsetEstimator
 
+RECENT_IDS_KEPT = 1024  # peer ids remembered to refuse a repeat (H-25); a replay older than this is not detected
 CLOCK_INFO_EVERY = 30  # one INFO line with the clock estimate per 30 samples (1 minute); the rest at DEBUG
 
 
 @dataclass
 class Received:
-    msg: dict
+    msg: dict[str, Any]
     data: bytes | None
     rx_us: int
     raw: str = ""  # the exact text frame (the handshake transcript hashes it)
 
     @property
     def type(self) -> str:
-        return self.msg["type"]
+        return str(self.msg["type"])
 
 
 @dataclass
@@ -36,6 +38,7 @@ class LinkStats:
     rx_messages: int = 0
     tx_messages: int = 0
     id_gaps: int = 0
+    duplicate_ids: int = 0
     echo_answered: int = 0
     echo_crc_errors: int = 0
     errors_received: int = 0
@@ -59,10 +62,13 @@ class LinkClosed(Exception):
 class Link:
     """Wraps a websockets connection. `role` is this side: protocol.BODY or protocol.BRAIN."""
 
-    def __init__(self, ws, role: str, *, log: logging.Logger | None = None,
+    def __init__(self, ws: Any, role: str, *, log: logging.Logger | None = None,
                  heartbeat_s: float = p.HEARTBEAT_MS / 1000, liveness_s: float = p.LIVENESS_TIMEOUT_MS / 1000,
                  binary_timeout_s: float = 10.0, send_timeout_s: float = 30.0,
                  clock: ClockOffsetEstimator | None = None, max_peer_errors_per_min: int = 20):
+        heartbeat_s, liveness_s = p.check_link_timing(heartbeat_s, liveness_s)
+        binary_timeout_s = p.check_timeout("binary_timeout_s", binary_timeout_s)
+        send_timeout_s = p.check_timeout("send_timeout_s", send_timeout_s)
         self.ws = ws
         self.role = role
         self.peer = p.other_role(role)
@@ -78,29 +84,37 @@ class Link:
         self.stats = LinkStats()
         self._next_id = 1
         self._peer_last_id = 0
+        self._recent_ids: deque[int] = deque(maxlen=RECENT_IDS_KEPT)  # ids of messages already accepted
+        self._recent_set: set[int] = set()
         self._send_lock = asyncio.Lock()
         self._pending_heartbeats: dict[int, int] = {}  # heartbeat id -> our own send stamp (t0)
-        self._requests: dict[int, tuple[asyncio.Future, frozenset[str]]] = {}
+        self._requests: dict[int, tuple[asyncio.Future[Received], frozenset[str]]] = {}
         self._peer_errors: deque[float] = deque()
         self.max_peer_errors_per_min = max_peer_errors_per_min
-        self._tasks: list[asyncio.Task] = []
-        self.peer_hello: dict | None = None
+        self._tasks: list[asyncio.Task[None]] = []
+        self.peer_hello: dict[str, Any] | None = None
         self.authenticated = False
         self.last_rx = time.monotonic()
         self.closed_reason: str | None = None
 
     # ---- sending -------------------------------------------------------------------------------
 
-    async def send(self, mtype: str, payload: dict, *, reply_to: int | None = None,
+    async def send(self, mtype: str, payload: dict[str, Any], *, reply_to: int | None = None,
                    data: bytes | None = None, other_ts: int | None = None, ts: int | None = None,
                    check: bool = True,
-                   _register: tuple[asyncio.Future, frozenset[str], list[int]] | None = None) -> dict:
+                   _register: tuple[asyncio.Future[Received], frozenset[str], list[int]] | None = None) -> dict[str, Any]:
         """Send one message (and its binary frame, if any) atomically with the next id.
 
         The message is validated against v0 first (check=False only for tests that put bad messages on
         the wire). A send that cannot finish within send_timeout_s aborts the connection, because a
         half-written pair would corrupt the stream.
         """
+        if not isinstance(payload, dict):  # before payload.get below
+            raise p.FrameTypeError(f"payload must be a dict, not {type(payload).__name__}")
+        if data is not None:
+            p.check_data(data)
+        if ts is not None:
+            p.check_timestamp(ts)
         if mtype in p.BINARY_TYPE_CODES:
             n = len(data) if data else 0
             if payload.get("byte_length") != n:
@@ -162,7 +176,7 @@ class Link:
             try:
                 await self.send("error", {"code": err.code, "message": err.message, "fatal": fatal},
                                 reply_to=err.reply_to)
-            except ConnectionClosed:
+            except ConnectionClosed:  # swallowed: the peer is gone; the refusal is already counted and logged
                 pass
         return fatal
 
@@ -180,13 +194,23 @@ class Link:
             raise p.ProtocolError("bad_sequence", f"binary frame of {len(raw)} bytes was not due; dropped")
         if len(raw) > p.MAX_TEXT_BYTES or len(raw.encode("utf-8")) > p.MAX_TEXT_BYTES:
             raise p.ProtocolError("too_large", f"text frame over {p.MAX_TEXT_BYTES} bytes", fatal=True)
-        msg = p.decode(raw)
-        if isinstance(msg, dict) and p.valid_id(msg.get("id")) is not None:
-            if msg["id"] != self._peer_last_id + 1:
+        decoded = p.decode(raw)
+        if isinstance(decoded, dict) and p.valid_id(decoded.get("id")) in self._recent_set:
+            # A repeated id is a replay or a bug; never dispatch it twice (10-F18, T-P0-05-045). The id check
+            # runs before validation, so a repeat is refused without being looked at again.
+            self.stats.duplicate_ids += 1
+            raise p.ProtocolError("bad_sequence", f"id {decoded['id']} was already received; dropped",
+                                  reply_to=decoded["id"], silent=decoded.get("type") == "error")
+        if isinstance(decoded, dict) and p.valid_id(decoded.get("id")) is not None:
+            if decoded["id"] != self._peer_last_id + 1:
                 self.stats.id_gaps += 1
-                self.log.warning("id gap: expected %d, got %d", self._peer_last_id + 1, msg["id"])
-            self._peer_last_id = msg["id"]
-        p.validate(msg, sender=self.peer)
+                self.log.warning("id gap: expected %d, got %d", self._peer_last_id + 1, decoded["id"])
+            self._peer_last_id = decoded["id"]
+        msg = p.validate(decoded, sender=self.peer)
+        if len(self._recent_ids) == self._recent_ids.maxlen:
+            self._recent_set.discard(self._recent_ids[0])
+        self._recent_ids.append(msg["id"])
+        self._recent_set.add(msg["id"])
         self.stats.rx_messages += 1
         data = None
         if p.has_binary(msg):
@@ -239,10 +263,12 @@ class Link:
                     self._clock_samples += 1
                     level = logging.INFO if self._clock_samples % CLOCK_INFO_EVERY == 1 else logging.DEBUG
                     drift = self.clock.drift_fit_ppm
-                    self.log.log(level, "clock offset_ms=%.3f best_rtt_ms=%.2f rtt_ms=%.2f sample_ms=%.3f "
-                                 "drift_ppm=%s (%s minus %s)", self.clock.estimate_us / 1000,
-                                 self.clock.best.rtt_us / 1000, s.rtt_us / 1000, s.offset_us / 1000,
-                                 "none" if drift is None else f"{drift:.1f}", self.peer, self.role)
+                    estimate, best = self.clock.estimate_us, self.clock.best
+                    if estimate is not None and best is not None:
+                        self.log.log(level, "clock offset_ms=%.3f best_rtt_ms=%.2f rtt_ms=%.2f sample_ms=%.3f "
+                                     "drift_ppm=%s (%s minus %s)", estimate / 1000, best.rtt_us / 1000,
+                                     s.rtt_us / 1000, s.offset_us / 1000,
+                                     "none" if drift is None else f"{drift:.1f}", self.peer, self.role)
             return True
         if mtype == "echo" and reply_to is None:
             payload = msg["payload"]
@@ -254,9 +280,9 @@ class Link:
             await self.send("echo", dict(payload), reply_to=msg["id"], data=r.data)
             self.stats.echo_answered += 1
             return True
-        return mtype == "error"
+        return bool(mtype == "error")
 
-    async def request(self, mtype: str, payload: dict, *, expect: tuple[str, ...] | str, timeout: float = 10.0,
+    async def request(self, mtype: str, payload: dict[str, Any], *, expect: tuple[str, ...] | str, timeout: float = 10.0,
                       data: bytes | None = None) -> Received:
         """Send a message and wait for the peer's answer: a message of a type in `expect` (for example
         "ack", or "image" for capture_image) whose reply_to is its id, or an `error`.
@@ -337,7 +363,8 @@ class Link:
         window, and the largest deviation of the estimate from a straight line fitted to it over the session
         (both held to 20 ms). The whole-session spread includes real clock drift and is for information."""
         c = self.clock
-        if self._clock_samples == 0 or c.best is None:
+        estimate = c.estimate_us
+        if self._clock_samples == 0 or c.best is None or estimate is None:
             return "clock summary: no samples this session"
         change = c.max_change_us(since_us=self.session_start_us)
         dev = c.max_dev_from_fit_us(since_us=self.session_start_us)
@@ -347,5 +374,5 @@ class Link:
                 f"{'n/a (under 2 min of data)' if change is None else f'{change / 1000:.3f}'} "
                 f"max_dev_from_fit_ms={'n/a (under 2 min of data)' if dev is None else f'{dev / 1000:.3f}'} "
                 f"(limits 20, after 60 s warm-up) drift_ppm={'none' if drift is None else f'{drift:.1f}'} "
-                f"estimate_ms={c.estimate_us / 1000:.3f} best_rtt_ms={c.best.rtt_us / 1000:.2f} "
-                f"session_spread_ms={spread / 1000:.3f} resets={c.resets}")
+                f"estimate_ms={estimate / 1000:.3f} best_rtt_ms={c.best.rtt_us / 1000:.2f} "
+                f"session_spread_ms={'n/a' if spread is None else f'{spread / 1000:.3f}'} resets={c.resets}")

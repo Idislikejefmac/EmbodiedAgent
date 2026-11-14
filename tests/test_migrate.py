@@ -115,3 +115,48 @@ def test_cli_reports_wrong_passphrase_without_traceback(tmp_path, monkeypatch, c
     code = migrate.main(["restore", str(out), "--dest", str(tmp_path / "dest")])
     assert code == 1
     assert "Wrong passphrase" in capsys.readouterr().err
+
+
+def _authentic_archive(tmp_path, payload: bytes) -> Path:
+    """An archive with the right header and passphrase whose decrypted payload is `payload`."""
+    import os
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    salt, nonce = os.urandom(16), os.urandom(12)
+    header = migrate.MAGIC + bytes([migrate.SCRYPT_LOG_N]) + salt + nonce
+    key = migrate._key("a-long-test-passphrase", salt, migrate.SCRYPT_LOG_N)
+    path = tmp_path / "odd.eamig"
+    path.write_bytes(header + AESGCM(key).encrypt(nonce, payload, header))
+    return path
+
+
+def _not_gzip_tars():
+    import gzip
+    import io
+    import tarfile
+
+    plain = io.BytesIO()
+    with tarfile.open(fileobj=plain, mode="w") as tar:  # a tar that is not gzipped
+        info = tarfile.TarInfo("data/x")
+        info.size = 1
+        tar.addfile(info, io.BytesIO(b"x"))
+    good = io.BytesIO()
+    with tarfile.open(fileobj=good, mode="w:gz") as tar:
+        info = tarfile.TarInfo("data/x")
+        info.size = 1
+        tar.addfile(info, io.BytesIO(b"x"))
+    return {"text": b"not a tar at all", "empty": b"", "gzip_of_text": gzip.compress(b"hello"),
+            "plain_tar": plain.getvalue(), "truncated_gzip_header": good.getvalue()[:6],
+            "gzip_magic_only": b"\x1f\x8b"}
+
+
+@pytest.mark.parametrize("kind", sorted(_not_gzip_tars()))
+def test_x01_f03_an_authentic_archive_that_is_not_a_gzip_tar_is_refused_cleanly(tmp_path, kind, monkeypatch, capsys):
+    archive = _authentic_archive(tmp_path, _not_gzip_tars()[kind])
+    with pytest.raises(ValueError, match="not a valid"):
+        migrate.restore_data(archive, tmp_path / "dest", "a-long-test-passphrase")
+    monkeypatch.setattr(migrate.getpass, "getpass", lambda _="": "a-long-test-passphrase")
+    assert migrate.main(["restore", str(archive), "--dest", str(tmp_path / "dest2")]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error:") and "Traceback" not in err
