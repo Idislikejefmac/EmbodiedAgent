@@ -530,6 +530,8 @@ How to read a card: hand the whole card to one agent session. Steps are run one 
 
 **Why it matters.** Goal 4 (camera access). Stills also feed face recognition and waypoint photos.
 
+**Prerequisites from the P0-05 review (must be done before any camera frames flow).** (1) Authenticate the link in both directions: a shared token or HMAC challenge in `hello` that the brain checks and the body uses to verify the brain, so another app on the phone cannot act as the body (via the `adb reverse` listener) or as the brain (by binding port 8765 when the tunnel is down). (2) Body-side backpressure: check the send queue size and drop frames by a defined policy, because OkHttp closes the socket if its 16 MiB queue overflows. (3) The session watchdog from P1-05 should already bound the link service's lifetime.
+
 **Steps**
 
 1. Add an ARCore session with a simple camera preview to our app. Check: preview shows and tracking state reads TRACKING.
@@ -702,6 +704,8 @@ Anthropic's cookbook reached 1.48 s to first audio with sentence-by-sentence str
 **Goal.** Raw, echo-cancelled mic audio flows continuously to the laptop while a session is active.
 
 **Why it matters.** Goals 2 and 3. Both STT and voiceprints need the actual audio, which Android's recognizer never exposes.
+
+**Prerequisites from the P0-05 review.** The authenticated link and body-side backpressure described under P1-01 must exist before microphone audio streams, since a raw mic stream is exactly what a rogue local app would want. Pairing must also move off the debug broadcast: the debug receiver's permission (DUMP) can be granted to any app by `adb shell pm grant`, so before the microphone streams, replace it with on-screen pairing (for example scanning or typing a short code shown by the brain) that no other app can trigger.
 
 **Steps**
 

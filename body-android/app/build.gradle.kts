@@ -28,5 +28,10 @@ android {
 
 dependencies {
     implementation("com.google.ar:core:1.57.0")
+    // WebSocket client for protocol v0 (P0-05). 5.5.1 verified on Maven Central (released Oct 2026).
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    testImplementation("junit:junit:4.13.2")
+    // A real org.json for unit tests (android.jar only has stubs), so Protocol.validateFromBrain is testable.
+    testImplementation("org.json:json:20240303")
 }
 

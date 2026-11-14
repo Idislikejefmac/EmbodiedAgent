@@ -24,8 +24,10 @@ Copy-Item .env.example .env     # then fill in keys; .env is git-ignored
 ## Run the brain tests
 
 ```powershell
-.\.venv\Scripts\python -m pytest
+.\.venv\Scripts\python -m pytest -q
 ```
+
+The protocol tests check the schema, every example in `protocol/v0.md`, the binary frame layout, the server against a Python test body, and that the body's Kotlin allowlist matches the spec.
 
 ## Run the brain
 
@@ -34,6 +36,30 @@ Copy-Item .env.example .env     # then fill in keys; .env is git-ignored
 ```
 
 Prints the version, loads `config.toml`, and says which API keys are present or missing (never their values).
+
+## Run the brain server (protocol v0)
+
+```powershell
+.\.venv\Scripts\python -m brain serve
+```
+
+Listens on `ws://127.0.0.1:8765/` (from `config.toml` `[network]`), runs `adb reverse tcp:8765 tcp:8765` so the phone can reach it and re-runs it every minute (skip with `--no-phone-link`), and logs to the console and to `data/logs/serve-<time>.log` (rotated at 10 MB): connections, the clock offset once a minute, echo-test results and any refused message. `-v` logs every clock sample and event payloads. Stop with Ctrl+C (or Ctrl+Break): connections close with 1001 and each session's clock summary is logged. A non-loopback `--host` is refused unless you add `--allow-remote`. The protocol is specified in `protocol/v0.md`.
+
+Bodies must be paired: on first start the brain creates a random token in `data/secrets/link_token` (git-ignored; the folder is made private to your account first, and the brain refuses a token file anyone else owns or can read). Give it to the phone once, with a debug build of the app installed (the token goes to adb on stdin, never on a command line). `pair --rotate` makes a new token first; restart `serve` afterwards. The handshake proves both ends once but does not encrypt or protect each message, so it is only meant for loopback and the adb link (see `protocol/v0.md` section 4.2):
+
+```powershell
+.\.venv\Scripts\python -m brain pair
+```
+
+To redo only the phone link (for example after the adb connection drops): `.\tools\phone-link.ps1`.
+
+To check the server from the laptop alone, run a test body against it (1,000 echoes of 100 kB by default):
+
+```powershell
+.\.venv\Scripts\python -m brain probe --count 1000 --bytes 102400
+```
+
+The probe connects as a body, so it replaces a connected phone (which then stops until Connect is pressed again).
 
 ## Build the Android app
 
@@ -45,11 +71,22 @@ cd body-android
 .\gradlew.bat assembleDebug
 ```
 
-Install on a paired phone with `adb install -r app\build\outputs\apk\debug\app-debug.apk`.
+Install on a paired phone with `adb install -r app\build\outputs\apk\debug\app-debug.apk`. Run the Kotlin unit tests (binary frame format, authentication vectors, clock estimator, backpressure, validation) with `.\gradlew.bat testDebugUnitTest`.
+
+The app opens on the brain-link screen: a `host:port` setting (default `127.0.0.1:8765`), a link-state indicator (connected, retrying, stopped, not paired), Connect and Stop buttons, an echo-test button and an "ARCore check" button for the P0-02 checker. Nothing runs until Connect is pressed. The link then runs in a foreground service with a notification (with a Stop action), so it stays up with the screen locked and reconnects by itself when the brain restarts. It stops itself after 3 minutes without a stable link (one that stayed up 10 s), when the app is swiped away, when the brain shuts down and does not return within a minute, or when another body replaces it; authentication failures are retried within those 3 minutes; it holds a CPU wake lock only while connected. The screen is kept on only during an echo test.
+
+Debug builds also take test commands over adb, without touching the phone, through a broadcast receiver that requires `android.permission.DUMP` (held by the adb shell, preinstalled privileged apps, or an app granted it with `adb shell pm grant`; ordinary apps cannot get it on their own); results go to logcat under the tag `EmbodiedLink` and to the brain log:
+
+```powershell
+.\tools\phone-link.ps1 -Command connect            # add -UnreachableSeconds 30 to shorten the give-up time for a test
+.\tools\phone-link.ps1 -Command echo -Count 1000 -Bytes 102400
+.\tools\phone-link.ps1 -Command stop
+adb logcat -s EmbodiedLink
+```
 
 ## Phone link
 
-The laptop is a company device whose firewall blocks the phone, so the phone reaches the brain through `adb reverse tcp:8765 tcp:8765` over wireless debugging and connects to `127.0.0.1:8765`.
+The laptop is a company device whose firewall blocks the phone, so the phone reaches the brain through `adb reverse tcp:8765 tcp:8765` over wireless debugging and connects to `127.0.0.1:8765`. A direct WiFi address would need a change to `body-android/app/src/main/res/xml/network_security_config.xml` (cleartext is allowed only to 127.0.0.1 and localhost), a rebuild, and `serve --allow-remote`; see `protocol/v0.md` open question 3 before sending camera or microphone data that way.
 
 ## Moving the project to another machine
 
