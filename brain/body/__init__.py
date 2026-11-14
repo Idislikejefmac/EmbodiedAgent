@@ -3,16 +3,15 @@ from `create_body()`; it never imports a particular body (tests/test_boundary_li
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-from ..config import REPO_ROOT
+from ..config import BODY_KINDS, Config, as_config
 from .base import (INTERFACE_VERSION, Body, BodyBusy, BodyError, BodyTimeout, BodyUnavailable, NotSupported,
                    NotYetImplemented)
 from .streams import BodyStream
 from .types import (AudioChunk, BodyEvent, BodyStatus, Capability, ClockSync, ConfidenceBand, Image, NavGoal, Pose,
                     Speaker, TrackingState, Utterance)
-
-BODY_KINDS = ("sim", "phone")
 
 __all__ = [
     "BODY_KINDS", "INTERFACE_VERSION", "AudioChunk", "Body", "BodyBusy", "BodyError", "BodyEvent", "BodyStatus",
@@ -21,25 +20,27 @@ __all__ = [
 ]
 
 
-def create_body(kind: str, config: dict[str, Any], *, token: bytes | None = None, **options: Any) -> Body:
+def create_body(kind: str, config: Config | Mapping[str, Any], *, token: bytes | None = None,
+                **options: Any) -> Body:
     """The one place a body is chosen. `kind` is "sim" or "phone" (config.toml `[body] kind`).
 
-    The phone body needs the link token; the caller (the wiring point, brain/__main__.py) loads it.
-    The phone body's module is imported only when it is asked for, so the brain runs without it.
+    `config` is the checked Config (a raw table goes through the config gate first, so a bad value is a
+    ConfigError, a ValueError). The phone body needs the link token; the caller (the wiring point,
+    brain/__main__.py) loads it. The phone body's module is imported only when it is asked for.
     """
+    cfg = as_config(config)
     if kind == "sim":
         from .sim import SimBody
 
-        sim = config.get("body", {}).get("sim", {})
-        folders = {k: REPO_ROOT / sim[k] for k in ("image_dir", "audio_dir") if sim.get(k)}
-        return SimBody(**folders, **options)
+        options.setdefault("image_dir", cfg.body.sim.image_dir)  # None: built-in synthetic media
+        options.setdefault("audio_dir", cfg.body.sim.audio_dir)
+        return SimBody(**options)
     if kind == "phone":
         from .phone import PhoneBody
 
         if token is None:
             raise ValueError("the phone body needs the link token")
-        net = config.get("network", {})
-        options.setdefault("host", net.get("host", "127.0.0.1"))
-        options.setdefault("port", int(net.get("port", 8765)))
+        options.setdefault("host", cfg.network.host)
+        options.setdefault("port", cfg.network.port)
         return PhoneBody(token=token, **options)
     raise ValueError(f"unknown body kind {kind!r}; expected one of {BODY_KINDS}")

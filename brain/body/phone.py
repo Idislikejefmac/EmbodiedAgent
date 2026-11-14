@@ -20,13 +20,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from ..limits import ADB_LINK_RECHECK_S
 from .base import NotSupported
 from .link import LinkBody
 from .types import Capability, NavGoal
 
 log = logging.getLogger("brain.body.phone")
-
-LINK_RECHECK_S = 60
 
 
 def find_adb() -> str | None:
@@ -101,7 +100,7 @@ def ensure_link(port: int) -> tuple[bool, str]:
     return True, f"phone link up: adb reverse tcp:{port} tcp:{port}"
 
 
-async def keep_link(port: int, logger: logging.Logger = log, recheck_s: float = LINK_RECHECK_S) -> None:
+async def keep_link(port: int, logger: logging.Logger = log, recheck_s: float = ADB_LINK_RECHECK_S) -> None:
     """Re-run the reverse port forward every minute, so a dropped phone link heals by itself. Runs until
     cancelled; logs only when the state changes."""
     last = None

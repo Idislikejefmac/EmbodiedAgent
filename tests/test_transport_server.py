@@ -350,10 +350,13 @@ def test_a_token_file_others_can_open_or_a_corrupt_one_is_refused(tmp_path):
 
 def test_cli_reports_token_store_problems_without_a_traceback(tmp_path, capsys):
     from brain import __main__ as cli
+    from brain.config import parse_config
     bad = tmp_path / "secrets"
     auth.ensure_store(bad)
     auth.token_path(bad).write_text("junk")
-    token, problem = cli.load_token({"paths": {"secrets_dir": str(bad), "data_dir": str(tmp_path / "data")}})
+    # data_dir is confined to the config's folder since H-05, so the folders are given relative to tmp_path.
+    token, problem = cli.load_token(parse_config({"paths": {"secrets_dir": str(bad), "data_dir": "data"}},
+                                                 base=tmp_path))
     assert token is None and "valid token" in problem
 
 

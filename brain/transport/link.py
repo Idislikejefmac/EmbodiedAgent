@@ -14,10 +14,12 @@ from typing import Any
 
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 
+from ..limits import (BINARY_PAIR_TIMEOUT_S, CLOSE_REASON_MAX_CHARS, CLOSE_TIMEOUT_S, MAX_PEER_ERRORS_PER_MIN,
+                      REQUEST_TIMEOUT_S, SEND_TIMEOUT_S)
+from ..limits import RECENT_IDS_KEPT as RECENT_IDS_KEPT  # re-exported (H-11)
 from . import protocol as p
 from .clock import ClockOffsetEstimator
 
-RECENT_IDS_KEPT = 1024  # peer ids remembered to refuse a repeat (H-25); a replay older than this is not detected
 CLOCK_INFO_EVERY = 30  # one INFO line with the clock estimate per 30 samples (1 minute); the rest at DEBUG
 
 
@@ -64,8 +66,8 @@ class Link:
 
     def __init__(self, ws: Any, role: str, *, log: logging.Logger | None = None,
                  heartbeat_s: float = p.HEARTBEAT_MS / 1000, liveness_s: float = p.LIVENESS_TIMEOUT_MS / 1000,
-                 binary_timeout_s: float = 10.0, send_timeout_s: float = 30.0,
-                 clock: ClockOffsetEstimator | None = None, max_peer_errors_per_min: int = 20):
+                 binary_timeout_s: float = BINARY_PAIR_TIMEOUT_S, send_timeout_s: float = SEND_TIMEOUT_S,
+                 clock: ClockOffsetEstimator | None = None, max_peer_errors_per_min: int = MAX_PEER_ERRORS_PER_MIN):
         heartbeat_s, liveness_s = p.check_link_timing(heartbeat_s, liveness_s)
         binary_timeout_s = p.check_timeout("binary_timeout_s", binary_timeout_s)
         send_timeout_s = p.check_timeout("send_timeout_s", send_timeout_s)
@@ -230,6 +232,12 @@ class Link:
 
     # ---- behaviour common to both sides --------------------------------------------------------
 
+    def is_expected_reply(self, msg: dict[str, Any]) -> bool:
+        """Is this the answer to a request or heartbeat of ours still waiting? (Such answers are never
+        rate limited: the peer cannot flood with them, each needs a request of ours.)"""
+        reply_to = msg.get("reply_to")
+        return reply_to is not None and (reply_to in self._requests or reply_to in self._pending_heartbeats)
+
     async def handle_common(self, r: Received) -> bool:
         """Resolve requests, answer heartbeats and echo requests, log errors. True if consumed."""
         msg = r.msg
@@ -282,7 +290,8 @@ class Link:
             return True
         return bool(mtype == "error")
 
-    async def request(self, mtype: str, payload: dict[str, Any], *, expect: tuple[str, ...] | str, timeout: float = 10.0,
+    async def request(self, mtype: str, payload: dict[str, Any], *, expect: tuple[str, ...] | str,
+                      timeout: float = REQUEST_TIMEOUT_S,
                       data: bytes | None = None) -> Received:
         """Send a message and wait for the peer's answer: a message of a type in `expect` (for example
         "ack", or "image" for capture_image) whose reply_to is its id, or an `error`.
@@ -340,11 +349,11 @@ class Link:
         if transport is not None:
             transport.abort()
 
-    async def close(self, code: int, reason: str, timeout: float = 2.0) -> None:
+    async def close(self, code: int, reason: str, timeout: float = CLOSE_TIMEOUT_S) -> None:
         if self.closed_reason is None:
             self.closed_reason = f"closed by us: {code} {reason}"
         try:
-            await asyncio.wait_for(self.ws.close(code, reason[:120]), timeout)
+            await asyncio.wait_for(self.ws.close(code, reason[:CLOSE_REASON_MAX_CHARS]), timeout)
         except (TimeoutError, ConnectionClosed, OSError):
             self.abort("close handshake timed out")
 

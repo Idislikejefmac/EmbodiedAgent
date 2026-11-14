@@ -21,10 +21,12 @@ import secrets
 import subprocess
 from pathlib import Path
 
+from ..limits import ACL_TOOL_TIMEOUT_S
+from ..limits import NONCE_BYTES as NONCE_BYTES  # re-exported: the limits live in brain/limits.py (H-11)
+from ..limits import TOKEN_BYTES as TOKEN_BYTES
+
 log = logging.getLogger("brain.transport.auth")
 
-TOKEN_BYTES = 32
-NONCE_BYTES = 32
 LABELS = {"body": b"embodied-agent v0 body proof", "brain": b"embodied-agent v0 brain proof"}
 
 
@@ -246,7 +248,7 @@ def _restrict_dir(path: Path) -> None:
         os.chmod(path, 0o700)
     else:
         r = subprocess.run([_icacls(), str(path), "/inheritance:r", "/grant:r", f"{current_user()}:(OI)(CI)F"],
-                           capture_output=True, text=True, timeout=15)
+                           capture_output=True, text=True, timeout=ACL_TOOL_TIMEOUT_S)
         if r.returncode != 0:
             raise TokenStoreError(f"icacls could not restrict {path} (exit {r.returncode}): "
                                   f"{(r.stderr or r.stdout).strip()[:200]}")

@@ -19,8 +19,15 @@ from typing import Any, NoReturn
 from jsonschema import Draft202012Validator, validators
 
 from ..config import REPO_ROOT
-from ..limits import (HEARTBEAT_MS_MAX, HEARTBEAT_MS_MIN, LINK_TIMEOUT_S_MAX, LIVENESS_TIMEOUT_MS_MAX,
-                      LIVENESS_TIMEOUT_MS_MIN)
+from ..limits import (BINARY_HEADER_BYTES, ERROR_MESSAGE_MAX_CHARS, HEARTBEAT_MS_MAX, HEARTBEAT_MS_MIN,
+                      LINK_TIMEOUT_S_MAX, LIVENESS_TIMEOUT_MS_MAX, LIVENESS_TIMEOUT_MS_MIN)
+# Re-exported: these limits live in brain/limits.py (H-11); `protocol.MAX_TEXT_BYTES` and the rest keep working.
+from ..limits import HEARTBEAT_MS as HEARTBEAT_MS
+from ..limits import LIVENESS_TIMEOUT_MS as LIVENESS_TIMEOUT_MS
+from ..limits import MAX_BINARY_BYTES as MAX_BINARY_BYTES
+from ..limits import MAX_ID as MAX_ID
+from ..limits import MAX_TEXT_BYTES as MAX_TEXT_BYTES
+from ..limits import MAX_TS as MAX_TS
 
 PROTOCOL_VERSION = 0
 SCHEMA_PATH = REPO_ROOT / "protocol" / "v0.schema.json"
@@ -74,15 +81,10 @@ BINARY_HEADER = struct.Struct(">BBHIqI")
 BINARY_TYPE_CODES = {"image": 1, "audio_in": 2, "audio_out": 3, "echo": 4}
 BINARY_TYPE_NAMES = {code: name for name, code in BINARY_TYPE_CODES.items()}
 
-MAX_TEXT_BYTES = 65_536
-MAX_BINARY_BYTES = 8 * 1024 * 1024
-MAX_ID = 2**32 - 1
-MAX_TS = 2**53 - 1
+if BINARY_HEADER.size != BINARY_HEADER_BYTES:  # the spec fixes it; limits.MAX_FRAME_BYTES depends on it
+    raise RuntimeError("binary header size differs from limits.BINARY_HEADER_BYTES")
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-
-HEARTBEAT_MS = 2000
-LIVENESS_TIMEOUT_MS = 6000
 
 def check_seconds(name: str, value: object, low: float, high: float) -> float:
     """value as a float if it is a real, finite number of seconds from low to high (a bool is not one).
@@ -154,7 +156,7 @@ class ProtocolError(Exception):
                  silent: bool = False):
         if code not in ERROR_CODES:
             raise UnknownErrorCode(f"{str(code)[:64]!r} is not a protocol error code")
-        message = _CONTROL.sub("?", message)[:500]  # error.message may not carry control characters
+        message = _CONTROL.sub("?", message)[:ERROR_MESSAGE_MAX_CHARS]  # error.message may not carry control characters
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message

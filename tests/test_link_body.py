@@ -283,14 +283,15 @@ def test_create_body_picks_by_kind():
 
 
 def test_create_sim_body_uses_configured_media_folders(tmp_path, monkeypatch):
-    import brain.body as body_pkg
     from brain.body.sim_assets import write_default_media
+    from brain.config import parse_config
 
     write_default_media(tmp_path / "i", tmp_path / "a")
-    monkeypatch.setattr(body_pkg, "REPO_ROOT", tmp_path)
+    # Since H-05 the folders resolve under the config's own folder (here tmp_path), not a patched REPO_ROOT.
+    config = parse_config({"body": {"sim": {"image_dir": "i", "audio_dir": "a"}}}, base=tmp_path)
 
     async def go():
-        async with create_body("sim", {"body": {"sim": {"image_dir": "i", "audio_dir": "a"}}}) as sim:
+        async with create_body("sim", config) as sim:
             assert (await sim.capture_image()).width_px == 160
 
     run(go())

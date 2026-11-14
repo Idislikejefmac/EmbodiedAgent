@@ -23,13 +23,12 @@ from typing import Any
 
 from ..body.base import Body
 from ..body.types import Capability, Pose
+from ..limits import DEFAULT_MAX_EDGE_PX as DEFAULT_MAX_EDGE_PX  # the catalogue's default for capture_image.max_edge
+from ..limits import POSE_WAIT_S as POSE_WAIT_S  # re-exported (H-11)
 from ..transport.protocol import now_us
 from .tools import Caller, ToolOutput, ToolRegistry
 
 log = logging.getLogger("brain.agent.body_tools")
-
-POSE_WAIT_S = 2.0
-DEFAULT_MAX_EDGE_PX = 640  # the catalogue's default for capture_image.max_edge
 
 
 def _age_ms(t_us: int) -> int:

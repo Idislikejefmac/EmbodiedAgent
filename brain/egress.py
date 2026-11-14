@@ -52,10 +52,13 @@ import weakref
 from dataclasses import dataclass
 from typing import Any
 
+from .config import Config
+from .limits import PORT_MAX, PORT_MIN
+from .limits import RESOLVED_TTL_S as RESOLVED_TTL_S  # how long a learned address stays reachable (H-11)
+
 log = logging.getLogger("brain.egress")
 
 DEFAULT_PORT = 443
-RESOLVED_TTL_S = 600.0  # how long an address learned from a lookup of a listed name stays reachable
 PROXY_VARIABLES = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FTP_PROXY", "WS_PROXY", "WSS_PROXY",
                              "NO_PROXY"})
 SELF_TEST_ADDRESS = ("192.0.2.1", 9)  # RFC 5737 documentation address: never a real destination
@@ -113,22 +116,28 @@ class EgressPolicy:
                 host, _, port_text = text.partition(":")
                 port = int(port_text) if port_text.isdigit() else -1
             ip = _as_ip(host)
-            if not 1 <= port <= 65535 or (ip is None and not _HOST.match(host)):
+            if not PORT_MIN <= port <= PORT_MAX or (ip is None and not _HOST.match(host)):
                 raise ValueError(f"egress entry {entry!r} must be an exact host name or IP address, optionally "
                                  f"with :port (no scheme, path or wildcard)")
             if is_local(host):
                 raise ValueError(f"egress entry {entry!r}: loopback is not egress; it is governed by local_ports")
             allowed.add((str(ip) if ip is not None else host, port))
         ports = frozenset(local_ports)
-        if any(isinstance(p, bool) or not isinstance(p, int) or not 1 <= p <= 65535 for p in ports):
+        if any(isinstance(p, bool) or not isinstance(p, int) or not PORT_MIN <= p <= PORT_MAX for p in ports):
             raise ValueError("local_ports must be port numbers")
         return cls(frozenset(allowed), ports)
 
     @classmethod
-    def from_config(cls, config: dict[str, Any], *,
+    def from_config(cls, config: Config | dict[str, Any], *,
                     local_ports: frozenset[int] | set[int] = frozenset()) -> EgressPolicy:
-        """From a loaded config.toml. A missing section or list means deny everything."""
-        hosts = config.get("egress", {}).get("allowed_hosts", [])
+        """From the typed Config of brain/config.py (its [egress] list is already checked), or from a raw
+        config dict (tests, tools). A missing section or list means deny everything."""
+        if isinstance(config, Config):
+            return cls.from_hosts(list(config.egress.allowed_hosts), local_ports=local_ports)
+        section = config.get("egress", {}) if isinstance(config, dict) else None
+        if not isinstance(section, dict):
+            raise ValueError("[egress] must be a table")
+        hosts = section.get("allowed_hosts", [])
         if not isinstance(hosts, list):
             raise ValueError("[egress] allowed_hosts must be a list")
         return cls.from_hosts(hosts, local_ports=local_ports)

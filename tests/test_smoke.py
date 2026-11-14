@@ -18,10 +18,10 @@ def test_python_dash_m_brain_prints_version_line():
 
 
 def test_config_loads_and_has_an_egress_allowlist():
-    cfg = load_config()
-    assert isinstance(cfg["network"]["port"], int)
-    hosts = cfg["egress"]["allowed_hosts"]
-    assert isinstance(hosts, list) and all(isinstance(h, str) for h in hosts)
+    cfg = load_config()  # a typed, frozen Config since H-05
+    assert isinstance(cfg.network.port, int)
+    hosts = cfg.egress.allowed_hosts
+    assert isinstance(hosts, tuple) and all(isinstance(h, str) for h in hosts)
 
 
 def test_key_presence_reports_names_never_values(tmp_path):

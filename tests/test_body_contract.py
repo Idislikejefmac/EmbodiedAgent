@@ -48,7 +48,10 @@ async def sim_harness(tmp_path, capabilities=None):
 
 @asynccontextmanager
 async def phone_harness(tmp_path):
-    body = PhoneBody(token=TOKEN, port=0, phone_link=False, heartbeat_s=0.1, liveness_s=3.0)
+    # The slow-consumer check sends a burst of 400 events: the transport's per-type rate limit (H-09) is
+    # raised here so the check exercises the body stream's own drop policy, not the flood limit.
+    body = PhoneBody(token=TOKEN, port=0, phone_link=False, heartbeat_s=0.1, liveness_s=3.0,
+                     peer_msg_max_per_s=10_000, peer_msg_burst=10_000)
     started = now_us()
     await body.start()
     clients = AsyncExitStack()

@@ -596,7 +596,8 @@ def test_body_tools_against_the_phone_body_over_loopback():
 
 
 def test_body_tool_handlers_import_nothing_that_could_touch_the_system():
-    """The handlers' module may use only asyncio, a counter, logging and the brain's own body layer."""
+    """The handlers' module may use only asyncio, a counter, logging, the brain's own body layer and the named
+    limits (brain/limits.py holds only constants, H-11)."""
     tree = ast.parse(Path(body_tools.__file__).read_text(encoding="utf-8"))
     imported = set()
     for node in ast.walk(tree):
@@ -605,7 +606,7 @@ def test_body_tool_handlers_import_nothing_that_could_touch_the_system():
         elif isinstance(node, ast.ImportFrom):
             imported.add("." * node.level + (node.module or ""))
     assert imported == {"__future__", "asyncio", "itertools", "logging", "typing", "..body.base", "..body.types",
-                        "..transport.protocol", ".tools"}
+                        "..transport.protocol", ".tools", "..limits"}
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(tree)
                                                                          if isinstance(n, ast.Attribute)}
     assert not names & {"open", "exec", "eval", "compile", "__import__", "system", "Popen", "getattr"}

@@ -747,6 +747,8 @@ Severity: **High** = can lose data, leak a secret, spend money, exhaust memory r
 | H-34 | Low | `brain/body/types.py` `Image` (lines 252 to 253), `AudioChunk` (lines 303 to 304) | **New.** No upper bound on width, height, sample rate or channels, while the schema says 8,192 px, 8,000 to 192,000 Hz and 1 or 2 channels (doc 00 A.10 item 2, 20-F03). Wire data passes the schema first, so this matters for SimBody, ReplayBody and later bodies | Bounds from `limits.py` in `__post_init__` | T-P0-06-031 | S | Verified |
 | H-35 | Low | `brain/agent/tools.v0.json` line 256 (reserved list) | **New.** `recall` is reserved with `sensitive: false`, but reading another person's claims is sensitive by argument (40-F66, 30-F12) | Authorization inside the `recall` handler (or mark it sensitive) before P4-08 | T-P3-11-007 | S | Verified |
 
+Status, hardening batch 2 (14 Nov 2026): H-11 done (brain/limits.py is the home; tests/test_limits.py; Limits.kt left for batch 3). H-05 done (frozen Config gate, ConfigError, exit 2; tests/test_config_gate.py). H-10 done. H-01 and H-33 done (deletion log is a hook until P3-01/P4-08). H-34 done. H-09 and H-04 done early (DEC-104 policy as recommended, values provisional). Tests in tests/test_hardening_batch2.py.
+
 Duplicates dropped while adding items: "mypy test fails open" is H-13; "Speaker lacks status, evidence and a validated name" is H-16; "header `log_n` accepted up to 22 before the tag check" is H-01.
 
 **Batches (one developer, agent sessions):**

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import secrets
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -13,11 +14,19 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from .. import __version__
-from ..limits import PORT_MAX, TOKEN_MIN_BYTES
+from ..limits import (HANDLER_QUEUE_MAX_BYTES, HANDSHAKE_TIMEOUT_S, PEER_MSG_BURST, PEER_MSG_MAX_PER_S,
+                      PEER_RATE_SANITY_MAX, PORT_MAX, SEND_TIMEOUT_S, TOKEN_MIN_BYTES, WS_RECV_QUEUE_FRAMES)
+# Re-exported (H-11): these limits live in brain/limits.py.
+from ..limits import FIRST_FRAME_TIMEOUT_S as FIRST_FRAME_TIMEOUT_S  # idle sockets are dropped quickly
+from ..limits import HANDLER_QUEUE as HANDLER_QUEUE  # messages waiting for on_message; `busy` beyond
+from ..limits import MAX_FRAME_BYTES as MAX_FRAME_BYTES
+from ..limits import MAX_PENDING_HANDSHAKES as MAX_PENDING_HANDSHAKES  # a new one evicts the oldest
+from ..limits import PRE_AUTH_MAX_BYTES as PRE_AUTH_MAX_BYTES  # largest frame before authentication
 from ..logsafe import short_items, short_repr
 from . import auth
 from . import protocol as p
 from .clock import ClockOffsetEstimator
+from .flood import ANSWERED_WHEN_LIMITED, FloodGuard, HandlerBudget, PeerLogLimit, size_problem
 from .link import Link, Received
 
 log = logging.getLogger("brain.transport.server")
@@ -26,12 +35,15 @@ MessageHandler = Callable[[Link, Received], Awaitable[None]]
 LinkHandler = Callable[[Link], None]
 
 BRAIN_CAPABILITIES = ["event", "echo"]
-HANDLER_QUEUE = 256  # messages waiting for on_message; beyond this the body gets `busy`
 DIAGNOSTIC_EVENTS = {"echo_test_result"}  # only counters; logged in full. Other event data is not.
-MAX_PENDING_HANDSHAKES = 4  # connections not yet authenticated; a new one evicts the oldest
-FIRST_FRAME_TIMEOUT_S = 2.0  # a real body sends hello at once; idle sockets are dropped quickly
-PRE_AUTH_MAX_BYTES = 16 * 1024  # largest frame accepted before authentication (hello and auth are ~1 kB)
-MAX_FRAME_BYTES = p.MAX_BINARY_BYTES + p.BINARY_HEADER.size
+EXEMPT = {"log_limit_exempt": True}  # the one-per-session summary lines pass the per-connection log limit
+
+
+def _rate(name: str, value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
+            or not 1 <= value <= PEER_RATE_SANITY_MAX:
+        raise ValueError(f"{name} must be a number from 1 to {PEER_RATE_SANITY_MAX:g}")
+    return float(value)
 
 
 def new_session_id() -> str:
@@ -55,7 +67,9 @@ class BrainServer:
                  on_message: MessageHandler | None = None,
                  on_connect: LinkHandler | None = None, on_disconnect: LinkHandler | None = None,
                  heartbeat_s: float = p.HEARTBEAT_MS / 1000, liveness_s: float = p.LIVENESS_TIMEOUT_MS / 1000,
-                 hello_timeout_s: float = 10.0, send_timeout_s: float = 30.0):
+                 hello_timeout_s: float = HANDSHAKE_TIMEOUT_S, send_timeout_s: float = SEND_TIMEOUT_S,
+                 handler_queue_max_bytes: int = HANDLER_QUEUE_MAX_BYTES,
+                 peer_msg_max_per_s: float = PEER_MSG_MAX_PER_S, peer_msg_burst: float = PEER_MSG_BURST):
         if not isinstance(token, bytes):
             raise TypeError(f"the link token must be bytes, not {type(token).__name__}")
         if len(token) < TOKEN_MIN_BYTES:
@@ -67,6 +81,14 @@ class BrainServer:
         heartbeat_s, liveness_s = p.check_link_timing(heartbeat_s, liveness_s)
         hello_timeout_s = p.check_timeout("hello_timeout_s", hello_timeout_s)
         send_timeout_s = p.check_timeout("send_timeout_s", send_timeout_s)
+        if isinstance(handler_queue_max_bytes, bool) or not isinstance(handler_queue_max_bytes, int):
+            raise TypeError("handler_queue_max_bytes must be an int")
+        if not 1 <= handler_queue_max_bytes <= HANDLER_QUEUE_MAX_BYTES:
+            raise ValueError(f"handler_queue_max_bytes must be from 1 to {HANDLER_QUEUE_MAX_BYTES}")
+        self.handler_queue_max_bytes = handler_queue_max_bytes
+        # The default per-type rate (DEC-104). Tests that need a burst of events past it (the body
+        # contract's slow-consumer check) raise it; the check bounds keep it a real number.
+        self.peer_rate = (_rate("peer_msg_max_per_s", peer_msg_max_per_s), _rate("peer_msg_burst", peer_msg_burst))
         self.host = host
         self.port = port
         self._token = token
@@ -103,7 +125,7 @@ class BrainServer:
         self._server = await serve(
             self._handle, self.host, self.port,
             max_size=MAX_FRAME_BYTES,
-            max_queue=4,  # at most a few frames (32 MiB worst case) buffered per connection
+            max_queue=WS_RECV_QUEUE_FRAMES,  # at most a few frames (32 MiB worst case) buffered per connection
             ping_interval=None,  # liveness comes from protocol heartbeats
             compression=None,
             origins=[None],  # refuse any request with an Origin header: web pages may not act as a body
@@ -144,6 +166,10 @@ class BrainServer:
     async def _handle(self, ws: ServerConnection) -> None:
         session_id = new_session_id()
         slog = logging.getLogger(f"brain.transport.{session_id}")
+        log_limit = PeerLogLimit(slog)  # at most PEER_LOG_LINES_PER_MIN_MAX lines a minute from this connection
+        slog.addFilter(log_limit)
+        guard = FloodGuard(default=self.peer_rate)
+        budget = HandlerBudget(max_bytes=self.handler_queue_max_bytes)
         link = Link(ws, p.BRAIN, log=slog, heartbeat_s=self.heartbeat_s, liveness_s=self.liveness_s,
                     send_timeout_s=self.send_timeout_s)
         slog.info("connection from %s", ws.remote_address)
@@ -171,8 +197,9 @@ class BrainServer:
                 slog.info("replacing the previous body connection %s", old_id)
                 await old_link.close(p.CLOSE_REPLACED, "replaced by a newer body connection")
             link.start_background()
-            queue: asyncio.Queue[Received] = asyncio.Queue(HANDLER_QUEUE)
-            dispatcher = asyncio.create_task(self._dispatch_loop(link, queue))
+            # Unbounded as a Queue, bounded by `budget` (HANDLER_QUEUE messages and handler_queue_max_bytes).
+            queue: asyncio.Queue[tuple[Received, int]] = asyncio.Queue()
+            dispatcher = asyncio.create_task(self._dispatch_loop(link, queue, budget))
             while True:
                 try:
                     r = await link.recv()
@@ -181,17 +208,25 @@ class BrainServer:
                         await link.close(p.CLOSE_PROTOCOL_ERROR, e.code)
                         return
                     continue
+                size = len(r.raw.encode("utf-8")) + len(r.data or b"")
+                if not link.is_expected_reply(r.msg):  # answers to our own requests are never limited
+                    verdict = await self._limit(link, guard, r)
+                    if verdict == "close":
+                        return
+                    if verdict == "drop":
+                        continue
                 if await link.handle_common(r):
                     continue
                 if r.type in ("hello", "auth"):
                     await link.refuse(p.ProtocolError("bad_sequence", f"{r.type} after the handshake ignored",
                                                       reply_to=r.msg["id"]))
                     continue
-                try:
-                    queue.put_nowait(r)
-                except asyncio.QueueFull:
-                    await link.refuse(p.ProtocolError("busy", "brain handler queue full; message dropped",
-                                                      reply_to=r.msg["id"]), peer_fault=False)
+                if budget.reserve(size):
+                    queue.put_nowait((r, size))
+                else:
+                    await link.refuse(p.ProtocolError(
+                        "busy", f"brain handler queue full ({budget.messages} messages, {budget.bytes} bytes); "
+                                "message dropped", reply_to=r.msg["id"]), peer_fault=False)
         except ConnectionClosed as e:
             slog.info("connection closed: code=%s reason=%r", e.rcvd.code if e.rcvd else None,
                       e.rcvd.reason if e.rcvd else "")
@@ -203,12 +238,40 @@ class BrainServer:
                 self.links.pop(session_id)
             if activated:
                 self._notify(self.on_disconnect, link)
+            log_limit.flush()
             st = link.stats
-            slog.info("session end%s: rx=%d tx=%d id_gaps=%d echo_answered=%d echo_crc_errors=%d refused=%s",
+            slog.info("session end%s: rx=%d tx=%d id_gaps=%d echo_answered=%d echo_crc_errors=%d refused=%s "
+                      "rate_limited=%s log_lines_suppressed=%d handler_queue_peak_bytes=%d",
                       f" ({link.closed_reason})" if link.closed_reason else "", st.rx_messages, st.tx_messages,
-                      st.id_gaps, st.echo_answered, st.echo_crc_errors, st.refused)
+                      st.id_gaps, st.echo_answered, st.echo_crc_errors, st.refused, dict(guard.limited),
+                      log_limit.suppressed_total, budget.peak_bytes, extra=EXEMPT)
             if link.authenticated:
-                slog.info(link.clock_summary())
+                slog.info(link.clock_summary(), extra=EXEMPT)
+            slog.removeFilter(log_limit)
+
+    async def _limit(self, link: Link, guard: FloodGuard, r: Received) -> str:
+        """The flood and size limits for one valid message (H-09, H-04, DEC-104): "ok", "drop" or "close"."""
+        if not guard.admit(r.type):
+            if guard.flooding:
+                link.log.warning("closing: the body kept sending over the rate limit (%d messages over it this "
+                                 "minute; by type %s)", guard.excess_max_per_min + 1, dict(guard.limited),
+                                 extra=EXEMPT)
+                await link.refuse(p.ProtocolError(
+                    "busy", "too many messages over the rate limit for too long; closing", fatal=True,
+                    reply_to=r.msg["id"]), peer_fault=False)
+                await link.close(p.CLOSE_PROTOCOL_ERROR, "flood: rate limit exceeded")
+                return "close"
+            if r.type in ANSWERED_WHEN_LIMITED and r.msg["reply_to"] is None:
+                await link.refuse(p.ProtocolError("busy", f"too many {r.type} messages; rate limited",
+                                                  reply_to=r.msg["id"]), peer_fault=False)
+            return "drop"  # other types over the limit are dropped and counted (guard.limited)
+        problem = size_problem(r.type, len(r.raw.encode("utf-8")), len(r.data or b""))
+        if problem is not None:
+            if await link.refuse(p.ProtocolError("too_large", problem, reply_to=r.msg["id"])):
+                await link.close(p.CLOSE_PROTOCOL_ERROR, "too_large")
+                return "close"
+            return "drop"
+        return "ok"
 
     @staticmethod
     def _notify(callback: LinkHandler | None, link: Link) -> None:
@@ -303,9 +366,10 @@ class BrainServer:
         link.log.info("body authenticated; session %s", session_id)
         return True
 
-    async def _dispatch_loop(self, link: Link, queue: asyncio.Queue[Received]) -> None:
+    async def _dispatch_loop(self, link: Link, queue: asyncio.Queue[tuple[Received, int]],
+                             budget: HandlerBudget) -> None:
         while True:
-            r = await queue.get()
+            r, size = await queue.get()
             try:
                 await self._dispatch(link, r)
             except ConnectionClosed:
@@ -318,6 +382,8 @@ class BrainServer:
                                       peer_fault=False)
                 except ConnectionClosed:
                     return
+            finally:
+                budget.release(size)
 
     async def _dispatch(self, link: Link, r: Received) -> None:
         if self.on_message is not None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from websockets.exceptions import ConnectionClosed
 
@@ -38,7 +39,7 @@ def _number(value: object, low: float, high: float) -> float | None:
 
 class LinkBody(Body):
     def __init__(self, *, token: bytes, host: str = "127.0.0.1", port: int = 8765, name: str = "link",
-                 status_timeout_s: float = 5.0, **server_options: float):
+                 status_timeout_s: float = 5.0, **server_options: Any):
         self._name = name
         self._server = BrainServer(host, port, token=token, on_message=self._on_message,
                                    on_connect=self._on_connect, on_disconnect=self._on_disconnect,

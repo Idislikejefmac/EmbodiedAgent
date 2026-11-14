@@ -16,6 +16,7 @@ from typing import Any
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
+from ..limits import HANDSHAKE_TIMEOUT_S, MAX_FRAME_BYTES, WS_RECV_QUEUE_FRAMES
 from . import auth
 from . import protocol as p
 from .link import Link, Received
@@ -58,7 +59,7 @@ class TestBodyClient:
     async def __aenter__(self) -> TestBodyClient:
         if self.token is None:
             raise auth.AuthError("not paired: no link token")
-        ws = await ws_connect(self.url, max_size=p.MAX_BINARY_BYTES + p.BINARY_HEADER.size, max_queue=4,
+        ws = await ws_connect(self.url, max_size=MAX_FRAME_BYTES, max_queue=WS_RECV_QUEUE_FRAMES,
                               ping_interval=None, compression=None)
         link = self.link = Link(ws, p.BODY, log=log, heartbeat_s=self.heartbeat_s, liveness_s=self.liveness_s)
         try:
@@ -88,7 +89,7 @@ class TestBodyClient:
             "capabilities": list(self.capabilities), "commands": list(self.commands),
             "auth": {"nonce": body_nonce}})
         hello_text = link.last_sent_text
-        r = await asyncio.wait_for(link.recv(), 10)
+        r = await asyncio.wait_for(link.recv(), HANDSHAKE_TIMEOUT_S)
         if r.type == "error":
             raise auth.AuthError(f"brain refused hello: {r.msg['payload']['code']}: {r.msg['payload']['message']}")
         if r.type != "hello" or r.msg["reply_to"] != hello["id"]:
@@ -96,7 +97,7 @@ class TestBodyClient:
         transcript = [auth.digest(hello_text), auth.digest(r.raw)]
         am = await link.send("auth", {"mac": auth.proof(token, p.BODY, transcript)})
         transcript.append(auth.digest(link.last_sent_text))
-        r2 = await asyncio.wait_for(link.recv(), 10)
+        r2 = await asyncio.wait_for(link.recv(), HANDSHAKE_TIMEOUT_S)
         if r2.type == "error":
             raise auth.AuthError(f"brain refused auth: {r2.msg['payload']['code']}: {r2.msg['payload']['message']}")
         if r2.type != "auth" or r2.msg["reply_to"] != am["id"]:

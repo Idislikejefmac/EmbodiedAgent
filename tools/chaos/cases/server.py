@@ -15,6 +15,7 @@ from typing import Any
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
+from brain.limits import PEER_LOG_LINES_PER_MIN_MAX
 from brain.transport import auth
 from brain.transport import protocol as p
 from brain.transport import server as server_mod
@@ -26,6 +27,7 @@ from ..api import Case, Ctx, Gen, Violation, experiment, failure, hostile, inval
 from ..thresholds import TIMER_TOLERANCE_MS
 
 STEADY_TIMEOUT_S = 3.0
+FLOOD_CASE_OTHER_LINES = 25  # log lines in the flood case that are not the flooding connection's (see gen_failure)
 
 
 def raw(mtype: str, msg_id: int, payload: dict[str, Any], **kw: Any) -> str:
@@ -267,17 +269,24 @@ def gen_failure(g: Gen) -> list[Case]:
         failure("slow_auth", {"scenario": "slow_auth", "hello_timeout_s": 0.5}, "N12"),
         failure("event_with_3000_keys", {"scenario": "after_auth", "frames": [
             ("event", {"name": "sensor", "data": fuzz.many_keys(3000)})]}, "N11"),
+        # H-09 / T-P0-05-047, fixed: events over the per-type rate are dropped and counted, and the flooding
+        # connection's log lines are capped at PEER_LOG_LINES_PER_MIN_MAX (one of them the "suppressed" line,
+        # plus its two end-of-session summaries). The limit is per connection; this case also holds the
+        # steady-state connection and the server's own start and stop lines (about 15), hence the allowance.
+        # Before the fix the case logged over 150 lines.
+        failure("heartbeat_flood", {"scenario": "after_auth", "expect": {"busy"}, "frames": [
+            ("heartbeat", {}) for _ in range(40)]}, "N11"),  # H-09: over the heartbeat rate is answered `busy`
         failure("event_flood", {"scenario": "after_auth", "quiet": 1.0, "frames": [
             ("event", {"name": "tick", "data": {"n": i}}) for i in range(150)]}, "N11",
-            known_defect="H-09 / T-P0-05-047: no rate limit on valid frames; each event is one INFO log line, so "
-                         "150 events give 150 lines (PEER_LOG_LINES_PER_MIN_MAX 60 not enforced)"),
+            max_log_lines=PEER_LOG_LINES_PER_MIN_MAX + FLOOD_CASE_OTHER_LINES),
     ]
     return out
 
 
 @experiment(
     id="P0-05.server.session", card="P0-05",
-    entries=("ws_option.*", "close_code.*", "gate.brain.transport.link.Link.recv", "cli_command.brain.serve",
+    entries=("ws_option.*", "close_code.*", "gate.brain.transport.link.Link.recv",
+             "gate.brain.transport.flood.FloodGuard", "cli_command.brain.serve",
              "cli_command.brain.probe", "net_module.brain/transport/*"),
     hypothesis="After any frame or connection pattern, the server keeps running, refuses what is invalid with "
                "the right error and close code, logs bounded lines, and a paired body can still authenticate "

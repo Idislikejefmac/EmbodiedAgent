@@ -50,7 +50,13 @@ from jsonschema import Draft202012Validator, validators
 
 from ..body.base import BodyBusy, BodyError, BodyTimeout, BodyUnavailable, NotSupported, NotYetImplemented
 from ..body.types import IDENTIFIER, ConfidenceBand, Image
-from ..limits import ABANDONED_TASKS_PER_TOOL_MAX
+from ..limits import (ABANDONED_TASKS_PER_TOOL_MAX, LOG_KEY_MAX_CHARS, TOOL_DEFAULT_TIMEOUT_S, TOOL_NAME_MAX_CHARS,
+                      TOOL_TIMEOUT_MAX_S)
+# Re-exported (H-11): the registry's argument limits live in brain/limits.py.
+from ..limits import MAX_ARGS_BYTES as MAX_ARGS_BYTES  # arguments larger than this as JSON are refused
+from ..limits import MAX_ARGS_DEPTH as MAX_ARGS_DEPTH
+from ..limits import MAX_ARGS_NODES as MAX_ARGS_NODES
+from ..limits import MAX_KEYS_SHOWN as MAX_KEYS_SHOWN  # argument names shown in a log line or a detail
 
 log = logging.getLogger("brain.agent.tools")
 
@@ -72,11 +78,7 @@ INPUT_KEYWORDS = frozenset({
 })
 JSON_TYPES = frozenset({"object", "array", "string", "integer", "number", "boolean", "null"})
 ID_PATTERN = r"^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}(?!\n)$"
-DEFAULT_TIMEOUT_S = 15.0
-MAX_ARGS_BYTES = 64 * 1024  # arguments larger than this as JSON are refused before validation
-MAX_ARGS_DEPTH = 8
-MAX_ARGS_NODES = 2000
-MAX_KEYS_SHOWN = 5  # argument names shown in a log line or a detail; the rest are counted
+DEFAULT_TIMEOUT_S = TOOL_DEFAULT_TIMEOUT_S  # older name, kept for callers
 EVIDENCE = frozenset({"voice", "face"})
 _CODE_WORD = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _INVISIBLE = ("Cc", "Cf", "Co", "Cs", "Cn", "Zl", "Zp")  # control, format, private, surrogate, unassigned, separators
@@ -336,8 +338,8 @@ def catalogue_problems(raw: object) -> list[str]:
             bad += _schema_problems(name, schema, key, is_input=is_input)
         timeout = entry.get("timeout_s")
         if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
-                                    or not 0 < timeout <= 600):
-            bad.append(f"{name}: timeout_s must be a number of seconds up to 600")
+                                    or not 0 < timeout <= TOOL_TIMEOUT_MAX_S):
+            bad.append(f"{name}: timeout_s must be a number of seconds up to {TOOL_TIMEOUT_MAX_S}")
         plus = entry.get("timeout_plus_arg")
         if plus is not None and schemas_ok:
             arg = entry["input_schema"].get("properties", {}).get(plus)
@@ -389,16 +391,23 @@ def _strip_private(schema: Any) -> Any:
 
 def _show_keys(keys: Iterable[object], total: int) -> str:
     """The first few argument names, shortened, and how many more there are. Never values."""
-    shown = [str(k)[:40] for k in itertools.islice(keys, MAX_KEYS_SHOWN)]
+    shown = [str(k)[:LOG_KEY_MAX_CHARS] for k in itertools.islice(keys, MAX_KEYS_SHOWN)]
     return f"{shown}" + (f" and {total - len(shown)} more" if total > len(shown) else "")
 
 
 def _plain_json_problem(args: object) -> str | None:
     """Why `args` is not modest, plain JSON, or None. Only exact dict, list, str, int, float, bool and
-    None are accepted (a subclass could run code when it is looked at), within fixed depth and size."""
+    None are accepted (a subclass could run code when it is looked at), within fixed depth and size.
+
+    The size is accumulated DURING the walk (H-10): every string, argument name and container adds at
+    least the bytes it takes as JSON, so the walk stops as soon as MAX_ARGS_BYTES is passed instead of
+    looking at up to MAX_ARGS_NODES strings of MAX_ARGS_BYTES each (about 131 MB) first. The final
+    json.dumps check stays as the exact measure; it only runs on arguments the walk found small."""
     if type(args) is not dict:
         return "arguments must be an object"
+    too_large = f"arguments are larger than {MAX_ARGS_BYTES} bytes"
     nodes = 0
+    size = 0  # a lower bound on len(json.dumps(args)), so stopping early never refuses a small argument set
     stack: list[tuple[object, int]] = [(args, 1)]
     while stack:
         value, depth = stack.pop()
@@ -411,20 +420,31 @@ def _plain_json_problem(args: object) -> str | None:
                 return f"arguments are nested deeper than {MAX_ARGS_DEPTH}"
             if kind is dict:
                 mapping = cast(dict[object, object], value)  # kind is exactly dict
-                if any(type(k) is not str for k in dict.keys(mapping)):
-                    return "argument names must be strings"
+                size += 2  # {}
+                for k in dict.keys(mapping):
+                    if type(k) is not str:
+                        return "argument names must be strings"
+                    size += len(k) + 4  # "name": and the separator (k is exactly str here)
+                    if size > MAX_ARGS_BYTES:
+                        return too_large
                 stack.extend((v, depth + 1) for v in dict.values(mapping))
             else:
-                stack.extend((v, depth + 1) for v in list.__iter__(cast(list[object], value)))  # exactly list
+                items = cast(list[object], value)  # exactly list
+                size += 2 + list.__len__(items)  # [] and the separators
+                stack.extend((v, depth + 1) for v in list.__iter__(items))
         elif kind is float:
             number = cast(float, value)  # kind is exactly float
             if number != number or number in (float("inf"), float("-inf")):
                 return "numbers must be finite"
+            size += 1
         elif kind is str:
-            if len(cast(str, value)) > MAX_ARGS_BYTES:  # kind is exactly str
-                return f"arguments are larger than {MAX_ARGS_BYTES} bytes"
-        elif kind not in (int, bool, type(None)):
+            size += len(cast(str, value)) + 2  # kind is exactly str; quotes
+        elif kind in (int, bool, type(None)):
+            size += 1
+        else:
             return "arguments must be plain JSON values"
+        if size > MAX_ARGS_BYTES:
+            return too_large
     if len(json.dumps(args, allow_nan=False)) > MAX_ARGS_BYTES:
         return f"arguments are larger than {MAX_ARGS_BYTES} bytes"
     return None
@@ -531,13 +551,13 @@ class ToolRegistry:
             if first.validator == "additionalProperties":
                 extra = sorted(set(args) - set(spec.input_schema.get("properties", {})))
                 return f"unexpected argument(s) {_show_keys(extra, len(extra))}"
-            where = "/".join(str(p)[:40] for p in list(first.absolute_path)[:MAX_ARGS_DEPTH]) or "arguments"
+            where = "/".join(str(p)[:LOG_KEY_MAX_CHARS] for p in list(first.absolute_path)[:MAX_ARGS_DEPTH]) or "arguments"
             return f"{where}: does not satisfy '{first.validator}'"
         return _string_problem(spec.input_schema, args, "")
 
     async def call(self, name: object, args: object, caller: Caller) -> ToolResult:
         """Run one tool call, or refuse it. Does not raise (cancellation and interpreter exit aside)."""
-        shown = name[:64] if isinstance(name, str) else f"<{type(name).__name__}>"
+        shown = name[:TOOL_NAME_MAX_CHARS] if isinstance(name, str) else f"<{type(name).__name__}>"
         try:
             return await self._call(name, shown, args, caller)
         # broad-except: call() promises never to raise; anything unexpected becomes an `internal` result

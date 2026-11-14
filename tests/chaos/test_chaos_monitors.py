@@ -257,4 +257,4 @@ def test_monitors_are_off_between_cases(chaos_sandbox, tmp_path):
 def test_sandbox_never_points_at_real_data(chaos_sandbox):
     roots = [str(p).lower() for p in sandbox.protected_roots()]
     assert not any(str(chaos_sandbox.root).lower().startswith(r) for r in roots)
-    assert chaos_sandbox.config["egress"]["allowed_hosts"] == []
+    assert chaos_sandbox.config.egress.allowed_hosts == ()  # the typed Config since H-05

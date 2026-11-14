@@ -37,14 +37,14 @@ markers = [
 # Run with:  python -m mypy   (checks the packages below in strict mode; tests/test_typing.py runs it too)
 python_version = "3.13"
 strict = true
-files = ["brain/body", "brain/agent", "brain/egress.py", "brain/limits.py", "brain/logsafe.py", "brain/transport",
-         "brain/__main__.py", "tools/chaos"]
+files = ["brain/body", "brain/agent", "brain/config.py", "brain/egress.py", "brain/limits.py", "brain/logsafe.py",
+         "brain/transport", "brain/__main__.py", "tools/chaos", "tools/migrate.py"]
 explicit_package_bases = true  # tools/ has no __init__.py
-follow_imports = "silent"  # brain/config.py and tools/migrate.py are imported but not yet checked (H-13 list below)
+follow_imports = "silent"  # tools/trace.py is imported but not yet checked (H-13 list below)
 
 # Not yet strict (H-13 follow-up): brain/transport/auth.py (ctypes calls into the Windows security API; needs typed
-# wrappers, and the token store is too important to retype in a hurry), brain/config.py (batch 2 rewrites it as the
-# typed Config gate, H-05), tools/migrate.py and tools/trace.py (batch 2 and the trace card).
+# wrappers, and the token store is too important to retype in a hurry) and tools/trace.py (the trace card).
+# brain/config.py (the typed Config gate) and tools/migrate.py joined in hardening batch 2 (H-05, H-01).
 [[tool.mypy.overrides]]
 module = ["brain.transport.auth"]
 ignore_errors = true

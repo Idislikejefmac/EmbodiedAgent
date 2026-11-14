@@ -185,8 +185,12 @@ def test_h18_the_edges_of_each_range_parse(argv):
 
 def test_h18_info_is_read_only(tmp_path, monkeypatch, capsys):
     """T-P0-04-018: `info` reports; it does not create the data folder."""
+    from brain.config import parse_config
+
     target = tmp_path / "not-yet"
-    monkeypatch.setattr(cli, "load_config", lambda: {"paths": {"data_dir": str(target)}, "network": {}})
+    # data_dir is confined to the config's own folder since H-05: a relative folder under tmp_path.
+    config = parse_config({"paths": {"data_dir": "not-yet"}, "network": {}}, base=tmp_path)
+    monkeypatch.setattr(cli, "load_config", lambda: config)
     assert cli.info() == 0
     assert not target.exists()
     assert "not-yet" in capsys.readouterr().out
@@ -305,23 +309,25 @@ def test_h08_setup_logging_puts_the_cap_on_every_handler(tmp_path, monkeypatch):
 
 
 def test_h08_peer_events_and_hello_lists_give_short_log_lines(caplog):
-    """T-P0-05-047 / T-X01-034: 3000 event keys, a 64-name command list and a huge echo_test_result each give
-    one short line, in the server and in the body adapter."""
+    """T-P0-05-047 / T-X01-034: 700 event keys, a 64-name command list and a large echo_test_result each give
+    one short line, in the server and in the body adapter. (700, not 3000: since H-04 an event over
+    EVENT_MAX_BYTES, 16 KiB, is refused as too_large before it is logged; 700 keys are still about 10 KB,
+    five times LOG_RECORD_MAX_BYTES.)"""
     from fakes import body, run, with_server
 
     async def go(server, url):
         async with body(url, commands=tuple(f"cmd_{i}_" + "x" * 30 for i in range(64)),
                         capabilities=("event", "echo")) as c:
-            await c.link.send("event", {"name": "sensor", "data": {f"k{i}": i for i in range(3000)}})
+            await c.link.send("event", {"name": "sensor", "data": {f"k{i}": i for i in range(700)}})
             await c.link.send("event", {"name": "echo_test_result",
-                                        "data": {f"k{i}": "v" * 8 for i in range(3000)}})
+                                        "data": {f"k{i}": "v" * 8 for i in range(700)}})
             await asyncio.sleep(0.3)
     caplog.set_level(logging.DEBUG)
     run(with_server(go))
     sizes = [len(r.getMessage().encode("utf-8")) for r in caplog.records if r.levelno >= logging.INFO]
     assert sizes and max(sizes) <= LOG_RECORD_MAX_BYTES, max(sizes)
     text = "\n".join(r.getMessage() for r in caplog.records if r.levelno >= logging.INFO)
-    assert "3000" in text and "k2999" not in text
+    assert "700" in text and "k699" not in text and "too_large" not in text
 
 
 # ---- H-20: handlers that ignore cancellation ----------------------------------------------------------------

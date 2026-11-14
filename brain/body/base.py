@@ -36,13 +36,14 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 
+from ..limits import CAPTURE_MAX_EDGE_PX_MAX, CAPTURE_MAX_EDGE_PX_MIN, POSE_RATE_MAX_HZ
 from .streams import BodyStream
 from .types import (AudioChunk, BodyEvent, BodyStatus, Capability, ClockSync, Image, NavGoal, Pose)
 
 INTERFACE_VERSION = 0
 
-MAX_EDGE_PX_RANGE = (64, 4096)  # capture_image bounds, as in protocol/v0.md section 8
-MAX_POSE_RATE_HZ = 30.0
+MAX_EDGE_PX_RANGE = (CAPTURE_MAX_EDGE_PX_MIN, CAPTURE_MAX_EDGE_PX_MAX)  # capture_image bounds (protocol/v0.md s. 8)
+MAX_POSE_RATE_HZ = POSE_RATE_MAX_HZ  # older name, kept for callers
 
 
 def check_real(name: str, value: object, *, low: float | None = None, high: float | None = None,

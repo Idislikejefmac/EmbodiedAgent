@@ -22,31 +22,31 @@ import ipaddress
 import logging
 import logging.handlers
 import math
-import os
 import signal
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from . import __version__
-from .config import REPO_ROOT, key_presence, load_config
-from .limits import BODY_CHECK_WAIT_MAX_S, ECHO_TEST_MAX_BYTES, ECHO_TEST_MAX_COUNT, PORT_MAX, PORT_MIN
+from .config import Config, ConfigError, as_config, key_presence, load_config
+from .config import REPO_ROOT as REPO_ROOT  # re-exported for the harness and tests
+from .limits import (BODY_CHECK_WAIT_MAX_S, ECHO_TEST_MAX_BYTES, ECHO_TEST_MAX_COUNT, LOG_FILE_BACKUPS,
+                     LOG_FILE_MAX_BYTES, PORT_MAX, PORT_MIN)
 from .logsafe import CapRecordSize
 
 if TYPE_CHECKING:
     from .body.base import Body
 
-PHONE_LINK_RECHECK_S = 60
+AnyConfig = Config | Mapping[str, Any] | None  # a checked Config, or a raw table that goes through the gate
 
 
 def info() -> int:
     print(f"embodied-agent brain {__version__}")
-    config = load_config()
-    network = config.get("network", {})
-    print(f"config: ok (host {network.get('host')}, port {network.get('port')})")
+    config = as_config(load_config())
+    print(f"config: ok (host {config.network.host}, port {config.network.port})")
     print(f"data dir: {data_dir(config)}")  # read-only: info never creates it
     print(f"secrets dir (link token): {secrets_dir(config)}")
     for name, present in key_presence().items():
@@ -54,41 +54,46 @@ def info() -> int:
     return 0
 
 
-def data_dir(config: dict[str, Any]) -> Path:
-    return REPO_ROOT / cast(str, config.get("paths", {}).get("data_dir", "data"))
+def data_dir(config: AnyConfig) -> Path:
+    """config [paths] data_dir, confined to the project by the config gate (H-05)."""
+    return as_config(config).paths.data_dir
 
 
-def secrets_dir(config: dict[str, Any]) -> Path:
+def secrets_dir(config: AnyConfig) -> Path:
     """Where the link token lives: config [paths] secrets_dir, else a private folder in the user profile."""
     from .transport.auth import default_secrets_dir
 
-    override = config.get("paths", {}).get("secrets_dir")
-    return Path(os.path.expandvars(override)).expanduser() if override else default_secrets_dir()
+    override = as_config(config).paths.secrets_dir
+    return override if override is not None else default_secrets_dir()
 
 
-def load_token(config: dict[str, Any], *, rotate: bool = False) -> tuple[bytes | None, str]:
+def load_token(config: AnyConfig, *, rotate: bool = False) -> tuple[bytes | None, str]:
     """(token, "") or (None, a message saying what is wrong and what to do). Never raises."""
     from .transport.auth import TokenStoreError, load_or_create_token
 
-    d = data_dir(config)
     try:
-        return load_or_create_token(secrets_dir(config), rotate=rotate,
+        cfg = as_config(config)
+    except ConfigError as e:
+        return None, str(e)
+    d = data_dir(cfg)
+    try:
+        return load_or_create_token(secrets_dir(cfg), rotate=rotate,
                                     legacy=(d / "link_token", d / "secrets" / "link_token")), ""
     except TokenStoreError as e:
         return None, f"link token store is not safe: {e}"
     except OSError as e:
-        return None, f"could not read or create the link token in {secrets_dir(config)}: {e}"
+        return None, f"could not read or create the link token in {secrets_dir(cfg)}: {e}"
 
 
-def setup_logging(config: dict[str, Any], name: str, verbose: bool = False) -> str:
+def setup_logging(config: AnyConfig, name: str, verbose: bool = False) -> str:
     log_dir = data_dir(config) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{name}-{datetime.now():%Y%m%d-%H%M%S}.log"
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
-    file_handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3,
-                                                        encoding="utf-8")
+    file_handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=LOG_FILE_MAX_BYTES,
+                                                        backupCount=LOG_FILE_BACKUPS, encoding="utf-8")
     for h in (logging.StreamHandler(sys.stdout), file_handler):
         h.setFormatter(fmt)
         h.addFilter(CapRecordSize())  # no record over LOG_RECORD_MAX_BYTES (H-08)
@@ -143,10 +148,10 @@ async def _keep_phone_link(port: int, log: logging.Logger) -> None:
     """Re-run the phone's reverse port forward every minute, so a dropped phone link heals by itself."""
     from .body import phone  # the wiring point may name the phone body; transport stays agnostic
 
-    await phone.keep_link(port, log, PHONE_LINK_RECHECK_S)
+    await phone.keep_link(port, log)  # every ADB_LINK_RECHECK_S (brain/limits.py)
 
 
-def serve(args: argparse.Namespace, config: dict[str, Any]) -> int:
+def serve(args: argparse.Namespace, config: Config) -> int:
     log_file = setup_logging(config, "serve", args.verbose)
     log = logging.getLogger("brain.serve")
     log.info("embodied-agent brain %s; log file %s", __version__, log_file)
@@ -167,7 +172,7 @@ def serve(args: argparse.Namespace, config: dict[str, Any]) -> int:
     return 0
 
 
-def probe(args: argparse.Namespace, config: dict[str, Any]) -> int:
+def probe(args: argparse.Namespace, config: Config) -> int:
     from .transport.auth import AuthError
     from .transport.client import TestBodyClient
 
@@ -196,7 +201,7 @@ def probe(args: argparse.Namespace, config: dict[str, Any]) -> int:
         return 1
 
 
-def pair(args: argparse.Namespace, config: dict[str, Any]) -> int:
+def pair(args: argparse.Namespace, config: Config) -> int:
     from .body import phone
 
     token, problem = load_token(config, rotate=args.rotate)
@@ -252,11 +257,11 @@ async def _body_check(body: Body, wait_s: float) -> int:
     return 0 if not failures else 1
 
 
-def body_check(args: argparse.Namespace, config: dict[str, Any]) -> int:
+def body_check(args: argparse.Namespace, config: Config) -> int:
     from .body import create_body
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s", stream=sys.stdout)
-    kind = args.body or config.get("body", {}).get("kind", "sim")
+    kind = args.body or config.body.kind
     token = None
     if kind == "phone":
         token, problem = load_token(config)
@@ -311,8 +316,8 @@ def _float_in_range(low: float, high: float, what: str) -> Callable[[str], float
     return convert
 
 
-def build_parser(config: dict[str, Any]) -> argparse.ArgumentParser:
-    net = config.get("network", {})
+def build_parser(config: AnyConfig) -> argparse.ArgumentParser:
+    net = as_config(config).network
     port_type = _int_in_range(PORT_MIN, PORT_MAX, "a port")
     parser = argparse.ArgumentParser(prog="python -m brain")
     sub = parser.add_subparsers(dest="cmd")
@@ -321,8 +326,8 @@ def build_parser(config: dict[str, Any]) -> argparse.ArgumentParser:
                            ("probe", "run the echo test as a test body against a running server "
                                      "(replaces a connected body, which then stops)")):
         sp = sub.add_parser(name, help=helptext)
-        sp.add_argument("--host", default=net.get("host", "127.0.0.1"))
-        sp.add_argument("--port", type=port_type, default=int(net.get("port", 8765)),
+        sp.add_argument("--host", default=net.host)
+        sp.add_argument("--port", type=port_type, default=net.port,
                         help=f"TCP port, {PORT_MIN} to {PORT_MAX} (well-known ports are not refused)")
     pp = sub.add_parser("pair", help="send this brain's link token to the phone body (debug builds of the body only)")
     pp.add_argument("--rotate", action="store_true", help="make a new token first (the old one stops working)")
@@ -346,16 +351,28 @@ def build_parser(config: dict[str, Any]) -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Every command starts here. A config.toml or .env problem stops the brain with ONE clear message on
+    stderr and exit code 2 (fail closed, H-05), never a traceback."""
+    try:
+        return _main(argv)
+    except ConfigError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        print("the brain did not start; fix the file and run it again", file=sys.stderr)
+        return 2
+
+
+def _main(argv: list[str] | None) -> int:
     from .egress import EgressPolicy, install_guard
 
-    config = load_config()
+    config = as_config(load_config())
     parser = build_parser(config)
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["chaos"]:
         return chaos(argv[1:])
     args = parser.parse_args(argv)
     # The guard goes on before anything else runs. Only `probe` dials a port of another local process.
-    probe_port = {args.port} if args.cmd == "probe" and is_loopback(args.host) and 1 <= args.port <= 65535 else set()
+    probe_port = ({args.port} if args.cmd == "probe" and is_loopback(args.host) and PORT_MIN <= args.port <= PORT_MAX
+                  else set())
     install_guard(EgressPolicy.from_config(config, local_ports=probe_port))
     if args.cmd == "body-check":
         return body_check(args, config)

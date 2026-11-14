@@ -23,9 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from brain.config import DEFAULT_ENV, REPO_ROOT, KNOWN_KEYS
+from brain.config import DEFAULT_ENV, KNOWN_KEYS, REPO_ROOT, Config, parse_config
 from brain.transport import auth
 
+SANDBOX_PORT = 8765  # a valid [network] port (the gate refuses 0); nothing listens on it
 CANARY_ENV = {name: f"sk-canary-{name.split('_')[0].lower()}-" for name in KNOWN_KEYS}
 
 
@@ -33,10 +34,19 @@ CANARY_ENV = {name: f"sk-canary-{name.split('_')[0].lower()}-" for name in KNOWN
 class Sandbox:
     root: Path
     canaries: dict[str, str] = field(default_factory=dict)  # label -> secret text
-    config: dict[str, Any] = field(default_factory=dict)
+    raw_config: dict[str, Any] = field(default_factory=dict)  # the sandbox's config table, before the gate
     _saved_env: dict[str, str | None] = field(default_factory=dict)
     _saved_tempdir: str | None = None
     _saved_bytecode: bool = False
+
+    @property
+    def config(self) -> Config:
+        """The sandbox's config through the config gate, relative paths under the sandbox root."""
+        return self.typed(self.raw_config)
+
+    def typed(self, raw: dict[str, Any]) -> Config:
+        """Any config table through the gate as if it were the sandbox's config.toml (ConfigError if bad)."""
+        return parse_config(raw, source=str(self.config_path), base=self.root)
 
     @property
     def data_dir(self) -> Path:
@@ -102,15 +112,17 @@ def create(parent: Path | None = None) -> Sandbox:
         sb.canaries[name] = value
         lines.append(f"{name}={value}")
     sb.env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    sb.config = {
-        "network": {"host": "127.0.0.1", "port": 0},
+    # data_dir is relative: the config gate confines it to the folder that holds config.toml (H-05), which
+    # here is the sandbox root. The port is never bound (server cases start their own on port 0).
+    sb.raw_config = {
+        "network": {"host": "127.0.0.1", "port": SANDBOX_PORT},
         "body": {"kind": "sim"},
         "egress": {"allowed_hosts": []},
-        "paths": {"data_dir": str(sb.data_dir), "secrets_dir": str(sb.secrets_dir)},
+        "paths": {"data_dir": "data", "secrets_dir": str(sb.secrets_dir)},
     }
     sb.config_path.write_text(  # TOML literal strings ('...') take Windows paths as they are
-        '[network]\nhost = "127.0.0.1"\nport = 0\n\n[body]\nkind = "sim"\n\n[egress]\nallowed_hosts = []\n\n'
-        f"[paths]\ndata_dir = '{sb.data_dir}'\nsecrets_dir = '{sb.secrets_dir}'\n", encoding="utf-8")
+        f'[network]\nhost = "127.0.0.1"\nport = {SANDBOX_PORT}\n\n[body]\nkind = "sim"\n\n[egress]\nallowed_hosts = []\n\n'
+        f"[paths]\ndata_dir = 'data'\nsecrets_dir = '{sb.secrets_dir}'\n", encoding="utf-8")
     return sb
 
 

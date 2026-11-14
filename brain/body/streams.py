@@ -20,11 +20,11 @@ from collections import deque
 from collections.abc import Callable, Coroutine
 from typing import Any, Protocol
 
-log = logging.getLogger("brain.body.streams")
+from ..limits import AUDIO_QUEUE as AUDIO_QUEUE  # re-exported: the queue bounds live in brain/limits.py (H-11)
+from ..limits import EVENT_QUEUE as EVENT_QUEUE
+from ..limits import POSE_QUEUE as POSE_QUEUE
 
-EVENT_QUEUE = 256
-POSE_QUEUE = 16
-AUDIO_QUEUE = 64
+log = logging.getLogger("brain.body.streams")
 
 
 class BodyStream[T](Protocol):

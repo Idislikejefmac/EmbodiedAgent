@@ -8,7 +8,7 @@ This laptop is a company device that will be returned. `data/` will hold family 
 .\.venv\Scripts\python tools\migrate.py export D:\backup\embodied.eamig
 ```
 
-The passphrase must be at least 12 characters. The tool refuses to overwrite an existing archive (use `--force`), refuses an output path inside `data/`, and refuses symlinks in `data/` (replace them with real files first).
+Before relying on an archive, check it without unpacking: `python tools\migrate.py verify D:\backup\embodied.eamig` (decrypts it, checks its structure and size, and lists the members). Restore refuses a destination that already has files unless you add `--force`, in which case it prints each path it will replace first; restore also refuses any archive made with a key-derivation cost other than the one export writes, and any archive larger than the size limit. The passphrase must be at least 12 characters. The tool refuses to overwrite an existing archive (use `--force`), refuses an output path inside `data/`, and refuses symlinks in `data/` (replace them with real files first).
 
 You choose a passphrase. The archive holds `data/`, `.env` and `config.toml`, encrypted with a key derived from the passphrase (scrypt, AES-256-GCM). Store the passphrase somewhere safe: without it the archive is unreadable.
 

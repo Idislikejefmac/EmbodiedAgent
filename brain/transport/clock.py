@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
-MAX_FIT_PPM = 200.0
+from ..limits import CLOCK_HISTORY_MAX
+from ..limits import CLOCK_MAX_FIT_PPM as MAX_FIT_PPM  # the limit lives in brain/limits.py (H-11; renamed there)
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ class ClockOffsetEstimator:
     """
 
     def __init__(self, horizon: int = 900, aging_ppm: float = 50.0, fitted_aging_ppm: float = 10.0,
-                 history_cap: int = 5_000, bucket_s: float = 60.0):
+                 history_cap: int = CLOCK_HISTORY_MAX, bucket_s: float = 60.0):
         self._samples: deque[OffsetSample] = deque(maxlen=horizon)  # 900 x 2 s = 30 minutes
         self.aging_ppm = aging_ppm
         self.fitted_aging_ppm = fitted_aging_ppm

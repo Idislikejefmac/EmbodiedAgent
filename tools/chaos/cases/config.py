@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from brain import __main__ as cli
-from brain.config import key_presence, load_config, parse_env_file
-from brain.config import REPO_ROOT
+from brain.config import Config, ConfigError, as_config, key_presence, load_config, parse_env_file
 from brain.egress import EgressPolicy
+from brain.limits import CONFIG_MAX_BYTES, ENV_FILE_MAX_BYTES
 from brain.transport import auth
 
 from ..api import Case, Ctx, Gen, experiment, failure, hostile, invalid, valid
@@ -40,19 +40,27 @@ def gen_invalid(g: Gen) -> list[Case]:
         invalid("egress_hosts_number", {"op": "egress_from_text", "text": "[egress]\nallowed_hosts = [443]\n"}, "N1"),
         invalid("env_garbage_lines", {"op": "env_text", "text": "no equals sign\n=novalue\n\x00\nANTHROPIC_API_KEY\n"},
                 "N5"),
+        invalid("env_value_nul", {"op": "env_text", "text": "ANTHROPIC_API_KEY=sk-a\x00b\n"}, "N5"),
+        invalid("env_oversize", {"op": "env_text", "text": "# x\n" * (ENV_FILE_MAX_BYTES // 4 + 1)}, "N2"),
+        invalid("unknown_key_typo", {"op": "load_config_text", "text": "[caps]\nsesion_usd = 1.0\n",
+                                     "expect": "did you mean 'session_usd'"}, "N4"),
+        invalid("unknown_section", {"op": "load_config_text", "text": "[netwrk]\nport = 8765\n",
+                                    "expect": "did you mean 'network'"}, "N4"),
+        invalid("config_oversize", {"op": "load_config_text", "text": "# x\n" * (CONFIG_MAX_BYTES // 4 + 1)}, "N2"),
+        invalid("port_wrong_type", {"op": "load_config_text", "text": '[network]\nport = "8765"\n'}, "N1"),
+        invalid("cap_negative", {"op": "load_config_text", "text": "[caps]\ndaily_usd = -1.0\n"}, "N6"),
+        invalid("cap_nan", {"op": "load_config_text", "text": "[caps]\nsession_usd = nan\n"}, "N6"),
+        invalid("egress_entry_table", {"op": "load_config_text", "text": "[egress]\nallowed_hosts = [{a = 1}]\n"}, "N1"),
     ]
-
-
-DATA_DIR_DEFECT = ("H-05 (10-F09): config [paths] data_dir is not confined; an absolute or ..\\ path moves the "
-                   "data folder anywhere")
 
 
 def gen_hostile(g: Gen) -> list[Case]:
     return [
-        hostile("data_dir_absolute_outside", {"op": "data_dir", "value": "C:\\Windows\\Temp\\ea-elsewhere"}, "N7",
-                known_defect=DATA_DIR_DEFECT),
-        hostile("data_dir_traversal", {"op": "data_dir", "value": "..\\..\\elsewhere"}, "N7",
-                known_defect=DATA_DIR_DEFECT),
+        hostile("data_dir_absolute_outside", {"op": "data_dir", "value": "C:\\Windows\\Temp\\ea-elsewhere"}, "N7"),
+        hostile("data_dir_traversal", {"op": "data_dir", "value": "..\\..\\elsewhere"}, "N7"),
+        hostile("data_dir_drive_relative", {"op": "data_dir", "value": "C:elsewhere"}, "N7"),
+        hostile("secrets_dir_outside_profile", {"op": "secrets_dir", "value": "C:\\Windows\\Temp\\ea-secrets"}, "N7"),
+        hostile("sim_dir_traversal", {"op": "sim_dir", "value": "data/../../elsewhere"}, "N7"),
     ]
 
 
@@ -71,10 +79,11 @@ def _fresh(ctx: Ctx, name: str) -> Path:
     return path
 
 
-def _config_for(ctx: Ctx, secrets_dir: Path) -> dict[str, Any]:
-    cfg = dict(ctx.sandbox.config)
-    cfg["paths"] = {"data_dir": str(ctx.sandbox.data_dir), "secrets_dir": str(secrets_dir)}
-    return cfg
+def _config_for(ctx: Ctx, secrets_dir: Path) -> Config:
+    cfg = dict(ctx.sandbox.raw_config)
+    cfg["paths"] = {"data_dir": "data", "secrets_dir": str(secrets_dir)}
+    typed: Config = ctx.sandbox.typed(cfg)
+    return typed
 
 
 def _refused(ctx: Ctx, token: bytes | None, problem: str) -> str:
@@ -86,12 +95,13 @@ def _refused(ctx: Ctx, token: bytes | None, problem: str) -> str:
 @experiment(
     id="P0-04.config.fail_closed", card="P0-04",
     entries=("config_key.*", "store.*", "env_var.*_API_KEY", "file_site.brain/config.py:*",
-             "file_site.brain/transport/auth.py:*", "gate.brain.config.load_config",
+             "file_site.brain/transport/auth.py:*", "gate.brain.config.load_config", "gate.brain.config.parse_config",
              "gate.brain.config.parse_env_file", "gate.brain.transport.auth.load_or_create_token",
              "gate.brain.transport.auth.parse_token", "cli_command.brain.info", "cli_command.brain.pair"),
-    hypothesis="A missing, corrupt, unprivate or wrong-typed config, .env or token store is refused with a "
-               "named error or a refusal message that holds no secret; nothing falls back to a weaker mode, "
-               "and the data folder cannot be moved outside the repository.",
+    hypothesis="A missing, corrupt, oversized, unprivate, misspelt or wrong-typed config, .env or token store is "
+               "refused with a named error (ConfigError names the file, the key and the reason) or a refusal "
+               "message that holds no secret; nothing falls back to a weaker mode, and the data folder cannot be "
+               "moved outside the repository.",
     blast_radius="sandbox", valid=gen_valid, invalid=gen_invalid, hostile=gen_hostile, failure=gen_failure,
     allow_processes=("icacls.exe",))
 def check(case: Case, ctx: Ctx) -> Any:
@@ -100,8 +110,9 @@ def check(case: Case, ctx: Ctx) -> Any:
     sb = ctx.sandbox
     if op == "load_config":
         cfg = load_config(sb.config_path)
-        ctx.expect(cfg["egress"]["allowed_hosts"] == [], "fail_closed", "sandbox config has egress hosts")
-        return sorted(cfg)
+        ctx.expect(cfg.egress.allowed_hosts == (), "fail_closed", "sandbox config has egress hosts")
+        ctx.expect(cfg.paths.data_dir == sb.data_dir.resolve(), "validate_before_use", "data_dir not under the root")
+        return f"{cfg.network.host}:{cfg.network.port}"
     if op == "key_presence":
         presence = key_presence(env_path=sb.env_path, environ={})
         ctx.expect(all(presence.values()), "validate_before_use", "a canary key was not seen")
@@ -117,7 +128,13 @@ def check(case: Case, ctx: Ctx) -> Any:
         path.write_bytes(d["data"] if "data" in d else d["text"].encode("utf-8"))
         try:
             load_config(path)
-        except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError):
+        except ConfigError as e:
+            ctx.expect(str(path) in str(e), "fail_closed", f"the refusal does not name the file: {str(e)[:120]}")
+            if d.get("expect"):
+                ctx.expect(d["expect"] in str(e), "fail_closed", f"the refusal lacks {d['expect']!r}: {str(e)[:160]}")
+            return "refused"
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError) as e:
+            ctx.expect(False, "fail_closed", f"refused with {type(e).__name__}, not a ConfigError")
             return "refused"
         ctx.expect(False, "fail_closed", "a corrupt config.toml loaded")
     if op == "egress_from_text":
@@ -130,19 +147,27 @@ def check(case: Case, ctx: Ctx) -> Any:
     if op == "env_text":
         path = _fresh(ctx, "env") / ".env"
         path.write_text(d["text"], encoding="utf-8")
-        values = parse_env_file(path)
+        try:
+            values = parse_env_file(path)
+        except ConfigError as e:
+            ctx.expect("sk-" not in str(e), "no_secret_in_output", "a .env refusal shows a value")
+            return "refused"
         ctx.expect(not values.get("ANTHROPIC_API_KEY"), "fail_closed", "a key without a value counts as present")
         return sorted(values)
-    if op == "data_dir":
-        cfg = {"paths": {"data_dir": d["value"]}}
-        where = cli.data_dir(cfg).resolve()
-        inside = where == (REPO_ROOT / "data").resolve() or str(where).startswith(str((REPO_ROOT / "data").resolve()))
-        ctx.expect(inside, "fail_closed", f"[paths] data_dir {d['value']!r} puts the data folder at {where}")
+    if op in ("data_dir", "secrets_dir", "sim_dir"):
+        raw = ({"body": {"sim": {"image_dir": d["value"]}}} if op == "sim_dir" else {"paths": {op: d["value"]}})
+        try:
+            cfg = as_config(raw)  # what the brain does with config.toml: base = the repo root
+        except ConfigError:
+            return "refused"
+        where = (cfg.paths.data_dir if op == "data_dir" else cfg.paths.secrets_dir if op == "secrets_dir"
+                 else cfg.body.sim.image_dir)
+        ctx.expect(False, "fail_closed", f"{op} {d['value']!r} was accepted and puts the folder at {where}")
         return str(where)
     if op == "load_config_missing":
         try:
             load_config(_fresh(ctx, "nocfg") / "config.toml")
-        except FileNotFoundError:
+        except ConfigError:
             return "refused"
         ctx.expect(False, "fail_closed", "a missing config.toml did not stop the load")
     if op == "corrupt_token":

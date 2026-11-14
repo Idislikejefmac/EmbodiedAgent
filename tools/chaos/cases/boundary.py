@@ -26,8 +26,15 @@ from brain.agent.body_tools import register_body_tools
 from brain.agent.tools import CONSOLE, ToolRegistry
 from brain.body import create_body
 from brain.body.base import BodyError
-from brain.body.types import AudioChunk
+from brain.body.types import AudioChunk, Image
+from brain.config import ConfigError
 from brain.egress import EgressPolicy
+from brain.limits import (AUDIO_CHANNELS_MAX, AUDIO_SAMPLE_RATE_HZ_MAX, AUDIO_SAMPLE_RATE_HZ_MIN,
+                          CAPTURE_MAX_EDGE_PX_MAX, CAPTURE_MAX_EDGE_PX_MIN, CONFIG_PATH_MAX_CHARS, CONFIG_TEXT_MAX_CHARS,
+                          ECHO_TEST_MAX_BYTES, ECHO_TEST_MAX_COUNT, EGRESS_HOSTS_MAX, LLM_REQUESTS_PER_HOUR_MAX,
+                          LOG_CAPTURE_DAYS_MAX, LOG_CAPTURE_MB_MAX, MODEL_NAME_MAX_CHARS, OUTPUT_TOKENS_SANITY_MAX,
+                          PORT_MAX, PORT_MIN, POSE_RATE_MAX_HZ, SCRYPT_LOG_N, SPEND_CAP_SANITY_MAX,
+                          WIRE_IMAGE_EDGE_MAX_PX)
 from brain.transport import auth
 from brain.transport import protocol as p
 
@@ -230,15 +237,17 @@ async def check_tools(case: Case, ctx: Ctx) -> Any:
 
 # ---- P0-06: Body method arguments (no schema: limits from brain/body/base.py and the wire) -----------------------
 
-WIRE_SAMPLE_RATE = (8000, 192_000)  # protocol schema audio_in.sample_rate_hz; Appendix A.10 item 2
 BODY_INPUTS: list[tuple[str, Spec, dict[str, str]]] = [
-    ("capture_image.max_edge_px", Spec("integer", minimum=64, maximum=4096, required=False), {}),
-    ("pose_stream.rate_hz", Spec("number", exclusive_minimum=0, maximum=30, required=False), {}),
+    ("capture_image.max_edge_px", Spec("integer", minimum=CAPTURE_MAX_EDGE_PX_MIN, maximum=CAPTURE_MAX_EDGE_PX_MAX,
+                                       required=False), {}),
+    ("pose_stream.rate_hz", Spec("number", exclusive_minimum=0, maximum=POSE_RATE_MAX_HZ, required=False), {}),
     ("speak_text.text", Spec("string", min_length=1, strict_text=False), {}),
     ("speak_text.utterance_id", Spec("string", min_length=1, max_length=64, pattern=T.ID_PATTERN), {}),
-    ("audio_chunk.sample_rate_hz", Spec("integer", minimum=WIRE_SAMPLE_RATE[0], maximum=WIRE_SAMPLE_RATE[1]),
-     {n: "Appendix A.10 item 2: AudioChunk has no upper bound on sample_rate_hz (the wire allows 8000 to 192000)"
-      for n in ("one_over_maximum", "ten_times_maximum", "huge")}),
+    # The wire's bounds (schema `pcm`, `image`), enforced by the data classes since H-34 (Appendix A.10 item 2).
+    ("audio_chunk.sample_rate_hz", Spec("integer", minimum=AUDIO_SAMPLE_RATE_HZ_MIN, maximum=AUDIO_SAMPLE_RATE_HZ_MAX),
+     {}),
+    ("audio_chunk.channels", Spec("integer", minimum=1, maximum=AUDIO_CHANNELS_MAX), {}),
+    ("image.width_px", Spec("integer", minimum=1, maximum=WIRE_IMAGE_EDGE_MAX_PX), {}),
 ]
 
 
@@ -267,18 +276,26 @@ async def _body_call(body: Any, name: str, value: Any) -> Any:
         return await body.speak_text(**({} if value is MISSING else {"text": value}), utterance_id="u-1")
     if name == "speak_text.utterance_id":
         return await body.speak_text("hello", **({} if value is MISSING else {"utterance_id": value}))
-    if name == "audio_chunk.sample_rate_hz":
-        args: dict[str, Any] = {"stream_id": 0, "seq": 0, "channels": 1, "data": b"\x00\x00" * 4}
-        if value is not MISSING:
-            args["sample_rate_hz"] = value
+    if name in ("audio_chunk.sample_rate_hz", "audio_chunk.channels"):
+        args: dict[str, Any] = {"stream_id": 0, "seq": 0, "sample_rate_hz": 16_000, "channels": 1,
+                                "data": b"\x00\x00" * 4}
+        if value is MISSING:
+            args.pop(name.split(".")[1])
+        else:
+            args[name.split(".")[1]] = value
         return AudioChunk(**args)
+    if name == "image.width_px":
+        image: dict[str, Any] = {"image_id": "i-1", "encoding": "jpeg", "height_px": 1, "data": b""}
+        if value is not MISSING:
+            image["width_px"] = value
+        return Image(**image)
     raise ValueError(name)
 
 
 @experiment(
     id="P0-06.matrix.body_args", card="P0-06",
     entries=("body_method.capture_image", "body_method.pose_stream", "body_method.speak_text",
-             "gate.brain.body.types.AudioChunk"),
+             "gate.brain.body.types.AudioChunk", "gate.brain.body.types.Image"),
     hypothesis="For every Body argument, each boundary value is accepted inside the interface's stated range and "
                "otherwise refused with ValueError, TypeError or a BodyError at the call, never anything else.",
     blast_radius="sim", valid=_only(CaseClass.VALID, gen_body), invalid=_only(CaseClass.INVALID, gen_body),
@@ -346,10 +363,10 @@ def check_egress(case: Case, ctx: Ctx) -> Any:
 
 # Stated ranges (Appendix A; H-18 is that the brain does not enforce them yet).
 CLI_RANGES: dict[tuple[str, str, str], tuple[Spec, str | None]] = {  # (spec, recorded defect or None)
-    ("brain", "serve", "--port"): (Spec("integer", minimum=1, maximum=65535), None),
-    ("brain", "probe", "--port"): (Spec("integer", minimum=1, maximum=65535), None),
-    ("brain", "probe", "--count"): (Spec("integer", minimum=1, maximum=10_000), None),
-    ("brain", "probe", "--bytes"): (Spec("integer", minimum=0, maximum=1_048_576), None),
+    ("brain", "serve", "--port"): (Spec("integer", minimum=PORT_MIN, maximum=PORT_MAX), None),
+    ("brain", "probe", "--port"): (Spec("integer", minimum=PORT_MIN, maximum=PORT_MAX), None),
+    ("brain", "probe", "--count"): (Spec("integer", minimum=1, maximum=ECHO_TEST_MAX_COUNT), None),
+    ("brain", "probe", "--bytes"): (Spec("integer", minimum=0, maximum=ECHO_TEST_MAX_BYTES), None),
     ("brain", "body-check", "--wait"): (Spec("number", minimum=0, maximum=3600), None),  # X01-F02, H-18: fixed
 }
 _PARSERS: dict[str, argparse.ArgumentParser] = {}
@@ -432,18 +449,30 @@ def check_cli(case: Case, ctx: Ctx) -> Any:
 
 # ---- P0-04: config keys, through everything that reads them at start ------------------------------------------------
 
+# Every key the config gate knows (brain/config.py SCHEMA), with its stated range from brain/limits.py. Every
+# key is optional (a missing one takes its safe default); an unknown key stops the brain (DEC-106).
+_MONEY = Spec("number", minimum=0, maximum=SPEND_CAP_SANITY_MAX, required=False)
+_MODEL = Spec("string", min_length=1, max_length=MODEL_NAME_MAX_CHARS, required=False)
+_PATH = Spec("string", min_length=1, max_length=CONFIG_PATH_MAX_CHARS, required=False)
 CONFIG_KEYS: list[tuple[tuple[str, ...], Spec]] = [
-    (("network", "port"), Spec("integer", minimum=1, maximum=65535)),
-    (("network", "host"), Spec("string", min_length=1, max_length=253)),
+    (("network", "port"), Spec("integer", minimum=PORT_MIN, maximum=PORT_MAX, required=False)),
+    (("network", "host"), Spec("string", min_length=1, max_length=CONFIG_TEXT_MAX_CHARS, required=False)),
     (("body", "kind"), Spec("enum", enum=("sim", "phone"), required=False)),
-    (("egress", "allowed_hosts"), Spec("array", item=Spec("string"), required=False)),
-    (("paths", "data_dir"), Spec("string", min_length=1, max_length=260, required=False)),
-    (("paths", "secrets_dir"), Spec("string", min_length=1, max_length=260, required=False)),
-    (("caps", "session_usd"), Spec("number", minimum=0, maximum=100, required=False)),
-    (("models", "live_conversation"), Spec("string", min_length=1, max_length=128, required=False)),
+    (("egress", "allowed_hosts"), Spec("array", item=Spec("string"), max_items=EGRESS_HOSTS_MAX, required=False)),
+    (("paths", "data_dir"), _PATH),
+    (("paths", "secrets_dir"), _PATH),
+    (("caps", "session_usd"), _MONEY),
+    (("caps", "daily_usd"), _MONEY),
+    (("caps", "hard_stop_usd"), _MONEY),
+    (("caps", "requests_per_hour"), Spec("integer", minimum=1, maximum=LLM_REQUESTS_PER_HOUR_MAX, required=False)),
+    (("caps", "max_tokens"), Spec("integer", minimum=1, maximum=OUTPUT_TOKENS_SANITY_MAX, required=False)),
+    (("models", "live_conversation"), _MODEL),
+    (("models", "careful_looking"), _MODEL),
+    (("models", "offline"), _MODEL),
+    (("logging", "full_prompts"), Spec("boolean", required=False)),
+    (("logging", "capture_max_mb"), Spec("integer", minimum=1, maximum=LOG_CAPTURE_MB_MAX, required=False)),
+    (("logging", "capture_max_days"), Spec("integer", minimum=1, maximum=LOG_CAPTURE_DAYS_MAX, required=False)),
 ]
-CONFIG_DEFECT = ("H-05: config.toml has no schema; a wrong or out-of-range value is either accepted silently or "
-                 "ends python -m brain with a traceback instead of a clear refusal")
 
 
 def _config_case(b: Boundary, path: tuple[str, ...]) -> dict[str, Any]:
@@ -454,54 +483,70 @@ def gen_config(g: Gen) -> list[Case]:
     out: list[Case] = []
     for path, spec in CONFIG_KEYS:
         heavy = () if g.mode == "full" or path == ("network", "host") else QUICK_HEAVY
-        out += matrix_cases(".".join(path), spec, known={"*": CONFIG_DEFECT}, skip=NOT_JSON + heavy,
-                            make=functools.partial(_config_case, path=path))
+        out += matrix_cases(".".join(path), spec, skip=NOT_JSON + heavy, make=functools.partial(_config_case, path=path))
     return out
 
 
-def _start_brain_with(cfg: dict[str, Any]) -> None:
-    """What `python -m brain` does with its config before any command runs, without running one."""
+def _start_brain_with(ctx: Ctx, cfg: dict[str, Any]) -> str:
+    """What `python -m brain` does with its config before any command runs, without running one: the config
+    goes through the gate inside main(); a refusal must end main() with exit code 2 and one clear message."""
     saved = getattr(cli, "load_config")
-    setattr(cli, "load_config", lambda *a, **k: cfg)  # what main() reads its config through
+    setattr(cli, "load_config", lambda *a, **k: ctx.sandbox.typed(cfg))  # main() reads its config through this
+    err = io.StringIO()
     try:
-        capture_parser(cli.main, ["info"])
+        with contextlib.redirect_stderr(err):
+            try:
+                capture_parser(cli.main, ["info"])
+            except RuntimeError:  # main() returned before parse_args: it refused the config
+                text = err.getvalue()
+                ctx.expect(text.startswith("config error:") and "Traceback" not in text, "fail_closed",
+                           f"main() stopped without one clear message: {text[:160]!r}")
+                return "refused"
     finally:
         setattr(cli, "load_config", saved)
-    EgressPolicy.from_config(cfg)
-    cli.data_dir(cfg)
-    cli.secrets_dir(cfg)
-    kind = cfg.get("body", {}).get("kind", "sim")
-    if kind == "sim":
-        create_body(kind, cfg)
+    config = ctx.sandbox.typed(cfg)
+    EgressPolicy.from_config(config)
+    cli.data_dir(config)
+    cli.secrets_dir(config)
+    if config.body.kind == "sim":
+        create_body("sim", config)
+    return "started"
 
 
 @experiment(
     id="P0-04.matrix.config_keys", card="P0-04", entries=("config_key.*",),
     hypothesis="Each config key accepts its stated range; anything else stops the brain at start with a clear "
-               "refusal (a fail-closed exit), never a traceback and never a silent acceptance.",
+               "refusal (exit code 2 and one 'config error:' message naming the key), never a traceback and never "
+               "a silent acceptance.",
     blast_radius="sandbox", valid=_only(CaseClass.VALID, gen_config), invalid=_only(CaseClass.INVALID, gen_config),
     hostile=not_applicable("path confinement is in P0-04.config.fail_closed"),
     failure=not_applicable("missing and corrupt files are in P0-04.config.fail_closed"))
 def check_config(case: Case, ctx: Ctx) -> Any:
     d = case.data
-    cfg = copy.deepcopy(ctx.sandbox.config)
-    cfg.setdefault("models", {})["live_conversation"] = "m"
-    cfg.setdefault("caps", {})["session_usd"] = 0.5
+    cfg = copy.deepcopy(ctx.sandbox.raw_config)
     section, key = d["path"]
     if d["value"] is MISSING:
         cfg.get(section, {}).pop(key, None)
     else:
         cfg.setdefault(section, {})[key] = d["value"]
     try:
-        _start_brain_with(cfg)
+        outcome = _start_brain_with(ctx, cfg)
     except Violation:
         raise
     except Exception as e:  # broad-except: any escape here is a traceback at start
         raise Violation("no_crash", f"start-up with {'.'.join(d['path'])}={str(d['value'])[:40]!r} ended in a "
                                     f"traceback: {type(e).__name__}: {str(e)[:100]}") from None
-    ctx.expect(d["accept"] is not False, "fail_closed",
-               f"{'.'.join(d['path'])}={str(d['value'])[:40]!r} is outside its stated range and was accepted")
-    return "started"
+    shown = f"{'.'.join(d['path'])}={str(d['value'])[:40]!r}"
+    if d["accept"] is True:
+        ctx.expect(outcome == "started", "validate_before_use", f"{shown} is in its stated range and was refused")
+    elif d["accept"] is False:
+        ctx.expect(outcome == "refused", "fail_closed", f"{shown} is outside its stated range and was accepted")
+        if outcome == "refused":
+            try:
+                ctx.sandbox.typed(cfg)
+            except ConfigError as e:
+                ctx.expect(key in str(e), "fail_closed", f"the refusal does not name the key: {str(e)[:120]}")
+    return outcome
 
 
 # ---- P0-04: the migration archive ----------------------------------------------------------------------------------
@@ -516,22 +561,25 @@ def gen_migrate(g: Gen) -> list[Case]:
         invalid("header_truncated", {"op": "blob", "blob": b"EAMIG2" + bytes([17]) + bytes(10)}, "N3"),
         invalid("log_n_13", {"op": "blob", "blob": b"EAMIG2" + bytes([13]) + bytes(28) + bytes(32)}, "N6"),
         invalid("log_n_255", {"op": "blob", "blob": b"EAMIG2" + bytes([255]) + bytes(28) + bytes(32)}, "N6"),
-        invalid("garbage_ciphertext", {"op": "blob", "blob": b"EAMIG2" + bytes([14]) + bytes(28) + g.rng.randbytes(64)}, "N5"),
-        invalid("log_n_22_reaches_scrypt", {"op": "log_n", "log_n": 22}, "N6",
-                known_defect="H-01: restore_data passes a header log_n of 14 to 22 to scrypt before the archive is "
-                             "authenticated; 22 asks for about 4 GiB (only SCRYPT_LOG_N 17 is ever written)"),
+        invalid("garbage_ciphertext", {"op": "blob", "blob": b"EAMIG2" + bytes([SCRYPT_LOG_N]) + bytes(28)
+                                       + g.rng.randbytes(64)}, "N5"),
+        invalid("log_n_22_reaches_scrypt", {"op": "log_n", "log_n": 22}, "N6"),  # H-01: fixed
+        invalid("log_n_one_under", {"op": "log_n", "log_n": SCRYPT_LOG_N - 1}, "N6"),
+        invalid("log_n_one_over", {"op": "log_n", "log_n": SCRYPT_LOG_N + 1}, "N6"),
         invalid("empty_passphrase_export", {"op": "export", "passphrase": ""}, "N3"),
         invalid("passphrase_one_short", {"op": "export", "passphrase": "x" * 11}, "N3"),
         invalid("authentic_but_not_a_tar", {"op": "not_tar"}, "N4"),
+        invalid("restore_over_non_empty_dest", {"op": "non_empty_dest"}, "N4"),  # H-33: refused without --force
     ]
 
 
 @experiment(
     id="P0-04.matrix.migrate", card="P0-04",
     entries=("cli_command.migrate.*", "cli_arg.migrate.*", "store.migration_archive", "gate.tools.migrate.restore_data",
-             "file_site.tools/migrate.py:*"),
+             "gate.tools.migrate.verify_archive", "file_site.tools/migrate.py:*"),
     hypothesis="restore_data refuses any archive it did not write with ValueError (what migrate.main reports as "
-               "'Error: ...') before spending memory on it; export refuses a short passphrase.",
+               "'Error: ...') before spending memory on it (no header key cost but SCRYPT_LOG_N reaches scrypt), "
+               "never overwrites a non-empty destination without --force; export refuses a short passphrase.",
     blast_radius="sandbox", valid=lambda g: [c for c in gen_migrate(g) if c.cls is CaseClass.VALID],
     invalid=lambda g: [c for c in gen_migrate(g) if c.cls is CaseClass.INVALID],
     hostile=not_applicable("stage 1b: path traversal and link members inside an authenticated archive"),
@@ -547,6 +595,9 @@ def check_migrate(case: Case, ctx: Ctx) -> Any:
         (src / "data").mkdir(parents=True)
         (src / "data" / "note.txt").write_text("hello", encoding="utf-8")
         migrate.export_data(src, archive, "correct horse battery")
+        entries = migrate.verify_archive(archive, "correct horse battery")
+        ctx.expect(("data/note.txt", 5, False) in entries and not dest.exists(), "validate_before_use",
+                   f"verify listed {entries[:4]} or extracted something")
         names = migrate.restore_data(archive, dest, "correct horse battery")
         ctx.expect(names == ["data"], "validate_before_use", f"round trip restored {names}")
         return names
@@ -563,7 +614,7 @@ def check_migrate(case: Case, ctx: Ctx) -> Any:
         real_key = migrate._key
 
         def watched(passphrase: str, salt: bytes, log_n: int) -> bytes:
-            if log_n != migrate.SCRYPT_LOG_N:
+            if log_n != SCRYPT_LOG_N:
                 raise Violation("bounded_resources", f"header log_n {log_n} reached scrypt before the archive was "
                                                      "authenticated")
             return real_key(passphrase, salt, log_n)
@@ -578,7 +629,7 @@ def check_migrate(case: Case, ctx: Ctx) -> Any:
     if d["op"] == "not_tar":
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-        salt, nonce, log_n = os.urandom(16), os.urandom(12), 14
+        salt, nonce, log_n = os.urandom(16), os.urandom(12), SCRYPT_LOG_N
         header = migrate.MAGIC + bytes([log_n]) + salt + nonce
         key = migrate._key("correct horse battery", salt, log_n)
         archive.write_bytes(header + AESGCM(key).encrypt(nonce, b"this is not a gzip tar", header))
@@ -588,6 +639,20 @@ def check_migrate(case: Case, ctx: Ctx) -> Any:
             return "refused"
         except Exception as e:  # broad-except: anything but ValueError is a traceback from migrate.main
             raise Violation("no_crash", f"restore raised {type(e).__name__}, which migrate.main does not catch") from None
+    if d["op"] == "non_empty_dest":
+        src = work / "src"
+        (src / "data").mkdir(parents=True)
+        (src / "data" / "note.txt").write_text("old", encoding="utf-8")
+        (dest / "data").mkdir(parents=True)
+        (dest / "data" / "note.txt").write_text("newer", encoding="utf-8")
+        migrate.export_data(src, archive, "correct horse battery")
+        try:
+            migrate.restore_data(archive, dest, "correct horse battery")
+        except ValueError:
+            ctx.expect((dest / "data" / "note.txt").read_text(encoding="utf-8") == "newer", "fail_closed",
+                       "the refused restore still changed the destination")
+            return "refused"
+        ctx.expect(False, "fail_closed", "restore overwrote a non-empty destination without --force")
     try:
         migrate.restore_data(archive, dest, "whatever passphrase")
     except ValueError:

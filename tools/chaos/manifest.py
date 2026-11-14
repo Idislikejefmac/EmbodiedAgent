@@ -475,7 +475,9 @@ def _toml_paths(d: dict[str, Any], prefix: tuple[str, ...] = ()) -> set[tuple[st
 
 
 def discover_config_keys(out: Discovered) -> None:
-    paths: set[tuple[str, ...]] = set()
+    from brain.config import schema_paths
+
+    paths: set[tuple[str, ...]] = set(schema_paths())  # every key the config gate knows (H-05)
     for path in _py_files():
         paths |= config_paths_in(_parse(path))
     if CONFIG_TOML.exists():

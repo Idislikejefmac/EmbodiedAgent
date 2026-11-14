@@ -27,6 +27,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from ..limits import (AUDIO_CHANNELS_MAX, AUDIO_SAMPLE_RATE_HZ_MAX, AUDIO_SAMPLE_RATE_HZ_MIN, MAX_BINARY_BYTES,
+                      QUAT_NORM_TOL, WIRE_IMAGE_EDGE_MAX_PX)
+
 # Identifiers that recorders may use as file names (same rule as protocol/v0.md section 2).
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}(?!\n)$")
 EVENT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}(?!\n)$")
@@ -74,11 +77,21 @@ def _ident(value: Any, what: str) -> str:
     return value
 
 
-def _int(value: Any, what: str, *, low: int = 0, optional: bool = False) -> int | None:
+def _int(value: Any, what: str, *, low: int = 0, high: int | None = None, optional: bool = False) -> int | None:
     if value is None and optional:
         return None
-    if not isinstance(value, int) or isinstance(value, bool) or value < low:
-        raise ValueError(f"{what} must be an integer >= {low}, got {value!r:.80}")
+    if not isinstance(value, int) or isinstance(value, bool) or value < low or (high is not None and value > high):
+        bounds = f">= {low}" if high is None else f"from {low} to {high}"
+        raise ValueError(f"{what} must be an integer {bounds}, got {value!r:.80}")
+    return value
+
+
+def _data(value: Any, what: str) -> bytes:
+    """Binary data a body hands over: bytes, at most the wire's MAX_BINARY_BYTES (H-34)."""
+    if not isinstance(value, bytes):
+        raise ValueError(f"{what} must be bytes")
+    if len(value) > MAX_BINARY_BYTES:
+        raise ValueError(f"{what} is {len(value)} bytes; at most {MAX_BINARY_BYTES}")
     return value
 
 
@@ -169,7 +182,7 @@ class Pose:
         _ident(self.frame_id, "frame_id")
         object.__setattr__(self, "position_m", _vector(self.position_m, 3, "position_m"))
         q = _vector(self.orientation_xyzw, 4, "orientation_xyzw")
-        if abs(math.sqrt(sum(c * c for c in q)) - 1.0) > 1e-3:
+        if abs(math.sqrt(sum(c * c for c in q)) - 1.0) > QUAT_NORM_TOL:
             raise ValueError("orientation_xyzw must be a unit quaternion")
         object.__setattr__(self, "orientation_xyzw", q)
         object.__setattr__(self, "tracking", TrackingState(self.tracking))
@@ -258,10 +271,9 @@ class Image:
         _ident(self.image_id, "image_id")
         if self.encoding not in IMAGE_MEDIA_TYPES:
             raise ValueError(f"image encoding must be one of {sorted(IMAGE_MEDIA_TYPES)}, got {self.encoding!r:.40}")
-        _int(self.width_px, "width_px", low=1)
-        _int(self.height_px, "height_px", low=1)
-        if not isinstance(self.data, bytes):
-            raise ValueError("image data must be bytes")
+        _int(self.width_px, "width_px", low=1, high=WIRE_IMAGE_EDGE_MAX_PX)
+        _int(self.height_px, "height_px", low=1, high=WIRE_IMAGE_EDGE_MAX_PX)
+        _data(self.data, "image data")
         _int(self.t_us, "t_us")
         _int(self.t_body_us, "t_body_us", optional=True)
 
@@ -309,11 +321,11 @@ class AudioChunk:
     def __post_init__(self) -> None:
         _int(self.stream_id, "stream_id")
         _int(self.seq, "seq")
-        _int(self.sample_rate_hz, "sample_rate_hz", low=8000)
-        _int(self.channels, "channels", low=1)
+        _int(self.sample_rate_hz, "sample_rate_hz", low=AUDIO_SAMPLE_RATE_HZ_MIN, high=AUDIO_SAMPLE_RATE_HZ_MAX)
+        _int(self.channels, "channels", low=1, high=AUDIO_CHANNELS_MAX)
         if self.encoding not in AUDIO_ENCODINGS:
             raise ValueError(f"audio encoding must be one of {AUDIO_ENCODINGS}, got {self.encoding!r:.40}")
-        if not isinstance(self.data, bytes) or len(self.data) % (2 * self.channels):
+        if len(_data(self.data, "audio data")) % (2 * self.channels):
             raise ValueError("audio data must be whole 16-bit frames")
         _int(self.t_us, "t_us")
         _int(self.t_body_us, "t_body_us", optional=True)
