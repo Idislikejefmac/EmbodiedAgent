@@ -72,6 +72,7 @@ Work the table top to bottom if one agent session runs at a time. After G1 the V
 | 5 | P0-05 | WebSocket protocol v0 | P0-04 | Core | Opus 5.5 |  |
 | 6 | P0-06 | Body-agnostic interface and SimBody | P0-05 | Core | Fable 5.2 |  |
 | 6a | X-01 | Chaos and boundary test harness (cross-cutting; re-run at every gate) | P0-06 | Assurance | Opus 5.5 + Fable review |  |
+| 6b | X-02 | Live trace, health view and crash barrier (cross-cutting) | X-01 | Assurance | Opus 5.5 core, Sonnet 5.5 viewer |  |
 | 7 | P0-07 | Brain agent skeleton with Claude tool use | P0-06 | Core | Opus 5.5 | **G1** |
 | 8 | P1-01 | Camera stills at 1 to 2 Hz under ARCore | P0-03, P0-05 | Eyes | Sonnet 5.5 |  |
 | 9 | P1-02 | Image transport and cost controls | P1-01, P0-06 | Eyes | Opus 5.5 |  |
@@ -351,7 +352,7 @@ Image token maths is from the [vision docs](https://platform.claude.com/docs/en/
 
 How to read a card: hand the whole card to one agent session. Steps are run one at a time; do not start a step until the previous check passes. If a check fails, stop and fix that step only.
 
-**Definition of done for every card from X-01 onward.** In addition to its own acceptance test, a card is not done until (1) every new entry point it adds (a tool, a protocol message, a Body method, a CLI command, a config key, a file or database it reads, a hook) is registered in the chaos harness manifest, (2) the harness has cases for it covering valid input, invalid input, hostile input and failure injection, and (3) the full chaos suite passes with no new forbidden side effect. The harness fails the build if an entry point exists that is not registered.
+**Definition of done for every card from X-01 onward.** In addition to its own acceptance test, a card is not done until (1) every new entry point it adds (a tool, a protocol message, a Body method, a CLI command, a config key, a file or database it reads, a hook) is registered in the chaos harness manifest, (2) the harness has cases for it covering valid input, invalid input, hostile input and failure injection, and (3) the full chaos suite passes with no new forbidden side effect. The harness fails the build if an entry point exists that is not registered. From X-02 onward a card must also emit trace events for its decision points and report its sources in the health panel.
 
 ### P0-01 Dev environment and wireless debugging
 
@@ -559,6 +560,33 @@ How to read a card: hand the whole card to one agent session. Steps are run one 
 | Physical safety (robot phase, ISO 13482 context) | Simulation-based fault injection from a fault-free golden run, with an agreed list of where, when and how long a fault lasts. Deferred to R-02 and R-04, but the harness keeps hooks for it | later |
 
 Canonical references to read at build time: the OWASP GenAI Security Project (LLM Top 10 2025 and Top 10 for Agentic Applications), OWASP WebSocket Security Cheat Sheet and the Web Security Testing Guide, OWASP MASVS and MASTG, ISO/IEC 30107-3, the ASVspoof evaluation plans, Principles of Chaos (principlesofchaos.org), NIST AI 600-1, MITRE ATLAS, and the PyPA pip-audit documentation. Figures quoted in vendor blogs (percentages, thresholds) are not relied on.
+### X-02 Live trace, health view and crash barrier
+
+**Phase** 0 (cross-cutting) · **Depends on** X-01 (the harness checks it) · **Effort** M · **C** 4 · **I** 4 · **Model** Opus 5.5 for the event schema, supervisor and redaction; Sonnet 5.5 for the viewer and formatting · **Tag** TRANSFERS
+
+**Goal.** The brain can always show what it is thinking and doing, in real time, even when the camera, the microphone or the phone link are down, and no input, however bad, can crash it.
+
+**Why it matters.** Jeff's requirement (13 Nov 2026): real-time logging so that the logic stays visible when a sensor fails, and under no circumstances should the application crash. Today there is only plain-text logging per module: no structured events, no live view, no per-turn trace, no health panel.
+
+**What "never crash" means here (stated honestly).** The brain never dies from input: no unhandled exception, traceback, hang or runaway resource use from any input, state or failure we can inject. A component that hits an error is contained, logged and either degraded or restarted with its state kept. A deliberate refusal to start (a corrupt token file, a missing safety configuration, a guard self-test failing) is not a crash: it ends with a clear message, and that fail-closed behaviour stays. What no software can promise is surviving an operating-system kill, power loss, an out-of-memory kill of the whole process or a defect in the interpreter; for those the answer is a supervisor that restarts the brain and keeps its durable state consistent.
+
+**Steps**
+1. Define one structured event schema (JSON lines): time (monotonic and wall), level, source component, event type, a turn or session correlation ID, a short message, and a bounded dictionary of fields. Event types cover every decision point: link up, down and auth result; body capability changes; every tool call, argument summary (types and sizes, never values), result code and refusal; every channel and sensitivity decision; budget and cost; model call start and end; clock estimate changes; queue depths and drops; watchdog and timeout firings; contract and validation failures. Check: a schema test and a test that every entry point in the X-01 manifest emits at least one event.
+2. Build the logging pipeline so it can never harm the brain: a bounded in-memory ring buffer plus a non-blocking writer to rotating files (named size and count limits), drop-and-count under load, and a failing sink (disk full, locked file, read-only folder) is swallowed, counted and reported once, never raised. Check: failure-injection tests for each sink failure and a flood test.
+3. Redaction and safety at the source: secrets, tokens, embeddings, biometric templates, enrollment media, full prompts and argument values never enter an event; peer-supplied strings are quoted and truncated; control characters are neutralised; every field is length-limited. Check: the X-01 secret-scan monitor over a full run with canary values, and a forged-log-line test.
+4. A live viewer: `python -m brain watch` tails the event stream with filters (component, level, turn, event type), a compact one-line format and a detail mode, and works against a running brain over a local, loopback-only channel with the same authentication rules as the link. It also reads saved files, so any session can be replayed after the fact. Check: viewer tests against recorded event files, and a test that it cannot be used to read anything but the event stream.
+5. A health panel: a single status view (and an event) for every source and dependency, each with state, last-seen age and reason: phone link, camera, microphone, speaker, clock offset, battery and temperature, model and speech vendors, queues, budget, disk space, log sink. A source that is down shows as down with the reason, so a missing camera is visible, not silent. Check: each source can be forced into each state with a fake and the panel reports it.
+6. Synthetic sources: SimBody and a fake camera and microphone emit realistic events so the whole logic path can be watched with no hardware. Check: a full run against SimBody produces a complete trace for a scripted conversation.
+7. The crash barrier: a top-level supervisor wraps every long-lived task; an unhandled exception is caught, logged with its context, the component restarts with bounded backoff in a degraded mode, and after a stated number of failures in a stated time it stops that component and reports it. Cancellation and shutdown always work. Security refusals stay fatal at start and never fall back to a weaker mode. A process-level watchdog (the launcher) restarts the brain if it dies and records why. Check: fault-injection tests that raise inside every task type and confirm the rest keeps running; a test that stop and shutdown still work while a component is failing.
+8. Persist what matters across a restart: the live state needed to resume (session, budget counters, pending requests) is written atomically, so a restart does not lose or corrupt it. Check: kill the process at random points and confirm recovery.
+9. The invalid-input matrix: for every entry point built so far, systematically exercise minimum, maximum, one over the maximum, zero, empty, null or missing, wrong type, wrong encoding and oversized values, and confirm each is refused or handled with a structured error, a trace event and no crash. This is generated from the manifest and the limits table, and runs in the X-01 quick and full suites.
+10. Write `tools/chaos/README.md` additions and `docs/observability.md`: the event types, how to watch, how to add an event for a new feature, redaction rules, and the health panel states.
+
+**Deliverables.** Event schema, bounded logging pipeline, redaction, live viewer, health panel, synthetic sources, crash barrier and watchdog, persisted state, the invalid-input matrix, documentation.
+
+**Acceptance test.** Pass: with the phone link, camera and microphone all unavailable, a scripted conversation against SimBody still produces a complete, readable live trace and a correct health panel; a fault injected into any component is contained and visible; no input in the invalid-input matrix crashes the brain; a failing log sink never affects behaviour. Fail: any traceback, hang or silent failure, or any secret in an event.
+
+**Risks.** Logging can itself become the crash, the leak or the bottleneck. **Fallback.** Keep the pipeline small, bounded and dumb; the redaction and sink-failure tests are the first things written.
 ### P0-07 Brain agent skeleton with Claude tool use
 
 **Phase** 0 · **Depends on** P0-06 · **Effort** M · **C** 3 · **I** 4 · **Model** Opus 5.5 (streaming tool loop that every feature plugs into) · **Tag** TRANSFERS
