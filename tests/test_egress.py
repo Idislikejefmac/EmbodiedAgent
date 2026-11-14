@@ -368,6 +368,7 @@ ALLOWED = {
     "body/link.py": {"websockets"},  # only its exception type, to notice a dropped link
     "transport/auth.py": {"subprocess", "ctypes"},  # sets the token folder's access list; checks the open handle
     "body/phone.py": {"subprocess"},  # the phone's port forward and pairing
+    "obs/launcher.py": {"subprocess"},  # `serve --supervised` starts the brain itself as a child (X-02)
 }
 
 

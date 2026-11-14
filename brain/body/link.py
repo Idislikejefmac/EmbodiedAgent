@@ -17,6 +17,7 @@ from typing import Any
 
 from websockets.exceptions import ConnectionClosed
 
+from .. import obs
 from ..logsafe import short_items, short_repr
 from ..transport.clock import ClockOffsetEstimator
 from ..transport.link import Link, LinkClosed, Received, RequestError
@@ -75,12 +76,15 @@ class LinkBody(Body):
             self._events = Fanout()
             await self._server.start()
             self._started = True
+            obs.emit("body.start", f"{self._name} adapter listening", body=self._name, port=self._server.port,
+                     capabilities=[])
 
     async def close(self) -> None:
         if self._started:
             self._started = False
             await self._server.stop()
             self._events.close()
+            obs.emit("body.close", f"{self._name} adapter closed", body=self._name)
 
     async def wait_connected(self, timeout_s: float) -> bool:
         try:
@@ -111,6 +115,9 @@ class LinkBody(Body):
         caps, cmds = hello.get("capabilities") or [], hello.get("commands") or []
         log.info("body connected: capabilities=%s commands=%s", short_items(caps, len(caps)),
                  short_items(cmds, len(cmds)))
+        obs.emit("body.link", "body connected", body=self._name, connected=True)
+        obs.emit("body.capabilities", "no gated method is built over the link yet", body=self._name,
+                 connected=True, capabilities=sorted(c.value for c in self.capabilities))
         self._events.publish(BodyEvent("link_state", {"connected": True}, now_us(), source="adapter"))
 
     def _on_disconnect(self, link: Link) -> None:
@@ -119,6 +126,8 @@ class LinkBody(Body):
         self._link = None
         self._connected.clear()
         log.info("body disconnected")
+        obs.emit("body.link", "body disconnected", body=self._name, connected=False)
+        obs.emit("body.capabilities", "body disconnected", body=self._name, connected=False, capabilities=[])
         self._events.publish(BodyEvent("link_state", {"connected": False}, now_us(), source="adapter"))
 
     async def _on_message(self, link: Link, r: Received) -> None:
@@ -133,6 +142,7 @@ class LinkBody(Body):
                 link.log.info("event %s %s", name, short_repr(data, 500))
             else:
                 link.log.info("event %s (data keys %s)", name, short_items(data, len(data)))
+            obs.emit("body.event", "body event", body=self._name, name=name, data_keys=len(data))
             self._events.publish(BodyEvent(name, data, self._brain_time(msg["ts_body"], r.rx_us), msg["ts_body"]))
         else:
             link.log.debug("%s id=%d: nothing in the brain consumes this yet", r.type, msg["id"])
@@ -146,28 +156,37 @@ class LinkBody(Body):
     async def status(self) -> BodyStatus:
         link = self._link
         if link is None:
+            obs.emit("body.status", "no body connected", body=self._name, connected=False)
             return BodyStatus(connected=False, t_us=now_us())
         rtt_ms = None if link.clock.best is None else link.clock.best.rtt_us / 1000
         if "get_status" not in self._peer_commands(link):
+            obs.emit("body.status", "the body offers no get_status", body=self._name, connected=True, stale=False)
             return BodyStatus(connected=True, link_rtt_ms=rtt_ms, t_us=now_us())
         try:
             r = await link.request("command", {"name": "get_status", "args": {}}, expect="ack",
                                    timeout=self.status_timeout_s)
         except (LinkClosed, ConnectionClosed):
+            obs.emit("body.status", "the link closed during get_status", body=self._name, connected=False)
             return BodyStatus(connected=False, t_us=now_us())
         except (TimeoutError, RequestError) as e:
             # Connected but no reading: status() never raises, it says the answer is stale.
             why = f"refused ({e.code})" if isinstance(e, RequestError) else f"no answer in {self.status_timeout_s:g} s"
             link.log.warning("get_status: %s; reporting a stale status", why)
+            obs.emit("body.request", "get_status failed; status is stale", body=self._name, command="get_status",
+                     outcome=why)
+            obs.emit("body.status", "stale status", body=self._name, connected=True, stale=True)
             return BodyStatus(connected=True, link_rtt_ms=rtt_ms, capabilities=tuple(c.value for c in self.capabilities),
                               t_us=now_us(), stale=True)
         result = r.msg["payload"].get("result", {})
         charging = result.get("charging")
-        return BodyStatus(connected=True, battery_pct=_number(result.get("battery_pct"), 0, 100),
-                          charging=charging if isinstance(charging, bool) else None,
-                          temperature_c=_number(result.get("temperature_c"), -60, 200), link_rtt_ms=rtt_ms,
-                          capabilities=tuple(c.value for c in self.capabilities),
-                          t_us=self._brain_time(r.msg["ts_body"], r.rx_us))
+        status = BodyStatus(connected=True, battery_pct=_number(result.get("battery_pct"), 0, 100),
+                            charging=charging if isinstance(charging, bool) else None,
+                            temperature_c=_number(result.get("temperature_c"), -60, 200), link_rtt_ms=rtt_ms,
+                            capabilities=tuple(c.value for c in self.capabilities),
+                            t_us=self._brain_time(r.msg["ts_body"], r.rx_us))
+        obs.emit("body.status", "status reading", body=self._name, connected=True, stale=False,
+                 battery_pct=status.battery_pct, charging=status.charging, temperature_c=status.temperature_c)
+        return status
 
     def events(self) -> BodyStream[BodyEvent]:
         return self._events.subscribe()
@@ -175,6 +194,7 @@ class LinkBody(Body):
     async def stop(self, *, motion: bool = True, audio: bool = True) -> None:
         if self._link is None:
             raise BodyUnavailable("no body is connected")
+        obs.emit("body.stop", "stop (nothing is driven over the link yet)", body=self._name, motion=motion, audio=audio)
         # Nothing is driven over the link yet, so there is nothing to stop. When speaker output is
         # built (card P2-01) this sends the stop_audio_out command for `audio`.
 

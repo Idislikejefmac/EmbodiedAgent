@@ -233,8 +233,8 @@ def na_reason(gen: GenFn) -> str | None:
 
 # ---- experiments and their registry --------------------------------------------------------------------
 
-_ID = re.compile(r"^(P\d-\d\d|X-01|SYS|AND)\.[a-z0-9_]+\.[a-z0-9_]+$")
-_CARD = re.compile(r"^(P\d-\d\d|X-01|SYS|AND|R-\d\d)$")
+_ID = re.compile(r"^(P\d-\d\d|X-0\d|SYS|AND)\.[a-z0-9_]+\.[a-z0-9_]+$")
+_CARD = re.compile(r"^(P\d-\d\d|X-0\d|SYS|AND|R-\d\d)$")
 
 
 @dataclass(frozen=True)

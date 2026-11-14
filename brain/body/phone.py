@@ -20,6 +20,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .. import obs
 from ..limits import ADB_LINK_RECHECK_S
 from .base import NotSupported
 from .link import LinkBody
@@ -108,6 +109,8 @@ async def keep_link(port: int, logger: logging.Logger = log, recheck_s: float = 
         ok, message = await asyncio.to_thread(ensure_link, port)
         if ok != last:
             (logger.info if ok else logger.warning)(message)
+            obs.emit("link.forward", "port forward ok" if ok else "port forward failed (see the text log)", ok=ok,
+                     port=port, level="INFO" if ok else "WARNING")
             last = ok
         await asyncio.sleep(recheck_s)
 

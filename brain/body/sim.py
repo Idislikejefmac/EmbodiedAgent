@@ -29,6 +29,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from .. import obs
 from ..transport.protocol import now_us
 from . import sim_assets
 from .base import (MAX_EDGE_PX_RANGE, MAX_POSE_RATE_HZ, Body, BodyError, BodyUnavailable, check_real,
@@ -45,6 +46,7 @@ def new_frame_id() -> str:
     return f"sim-{uuid.uuid4().hex}"
 
 CHUNK_S = 0.080  # microphone chunk length, as on the wire (80 ms)
+AUDIO_EVENT_EVERY = 25  # a body.audio event for the first chunk and every 25th (2 s), not every chunk
 ALL_CAPABILITIES = frozenset(Capability)
 
 Place = tuple[tuple[float, float, float], float]  # (position in metres, heading in radians)
@@ -126,6 +128,8 @@ class SimBody(Body):
         self._frame_id = new_frame_id()  # tracking starts afresh: a frame no earlier run can share (DEC-081)
         self._events = Fanout()
         self._running = True
+        obs.emit("body.start", "sim body started", body="sim", images=len(self._images), audio_clips=len(self._audio),
+                 capabilities=sorted(c.value for c in self._capabilities))
         self.set_link(True)
         log.info("sim body started: %d images, %d audio clips, frame %s", len(self._images), len(self._audio),
                  self.frame_id)
@@ -139,6 +143,7 @@ class SimBody(Body):
         for task in list(self._producers):
             task.cancel()  # each producer ends its stream as it goes
         self._events.close()
+        obs.emit("body.close", "sim body closed", body="sim")
 
     async def wait_connected(self, timeout_s: float) -> bool:
         return self.connected
@@ -154,7 +159,10 @@ class SimBody(Body):
 
     async def status(self) -> BodyStatus:
         if not self.connected:
+            obs.emit("body.status", "sim body not connected", body="sim", connected=False)
             return BodyStatus(connected=False, t_us=now_us())
+        obs.emit("body.status", "sim body status", body="sim", connected=True, stale=False,
+                 battery_pct=self.battery_pct, charging=False, temperature_c=self.temperature_c)
         return BodyStatus(connected=True, battery_pct=self.battery_pct, charging=False,
                           temperature_c=self.temperature_c, link_rtt_ms=0.0,
                           capabilities=tuple(c.value for c in self._capabilities), t_us=now_us())
@@ -164,6 +172,7 @@ class SimBody(Body):
 
     async def stop(self, *, motion: bool = True, audio: bool = True) -> None:
         self._need_link()
+        obs.emit("body.stop", "stop", body="sim", motion=motion, audio=audio)
         self.stops.append((motion, audio))
         if motion:
             if self._mode == "nav":
@@ -215,7 +224,7 @@ class SimBody(Body):
                 due += 1.0 / rate_hz
                 await asyncio.sleep(max(0.0, due - loop.time()))
 
-        return spawn_stream(self._pose_queue, produce, self._producers)
+        return spawn_stream(self._pose_queue, produce, self._producers, name="pose")
 
     # ---- test controls (what a real body would do on its own) --------------------------------------
 
@@ -225,6 +234,9 @@ class SimBody(Body):
             return
         self._link_up = up
         t = now_us()
+        obs.emit("body.link", f"sim link {'up' if up else 'down'}", body="sim", connected=up)
+        obs.emit("body.capabilities", "capabilities changed", body="sim", connected=up,
+                 capabilities=sorted(c.value for c in self.capabilities))
         self._events.publish(BodyEvent("link_state", {"connected": up}, t, source="adapter"))
 
     def set_tracking(self, state: TrackingState, reason: str | None = None) -> None:
@@ -245,6 +257,7 @@ class SimBody(Body):
         self._emit(name, data or {})
 
     def _emit(self, name: str, data: dict[str, Any]) -> None:
+        obs.emit("body.event", "body event", body="sim", name=name, data_keys=len(data))
         t = now_us()
         self._events.publish(BodyEvent(name, data, t, t + self.clock_offset_us))
 
@@ -254,6 +267,7 @@ class SimBody(Body):
         self.require(Capability.IMAGE)
         low, high = MAX_EDGE_PX_RANGE
         if not isinstance(max_edge_px, int) or isinstance(max_edge_px, bool) or not low <= max_edge_px <= high:
+            obs.emit("validation.failed", "max_edge_px refused", parameter="max_edge_px", problem="not an integer in range")
             raise ValueError(f"max_edge_px must be an integer from {low} to {high}")
         _, data = self._images[self._image_count % len(self._images)]
         self._image_count += 1
@@ -265,6 +279,8 @@ class SimBody(Body):
             data, width, height = sim_assets.shrink_png(data, max_edge_px)
         pose = self.pose_now() if Capability.POSE in self._capabilities else None
         t = now_us()
+        obs.emit("body.frame", "camera still", body="sim", image_id=f"sim-img-{self._image_count}", encoding=encoding,
+                 width_px=width, height_px=height, size_bytes=len(data))
         return Image(f"sim-img-{self._image_count}", encoding, width, height, data, t, t + self.clock_offset_us, pose)
 
     # ---- microphone ------------------------------------------------------------------------------
@@ -293,21 +309,27 @@ class SimBody(Body):
                     if self._link_up:  # chunks lost while the link is down show as a gap in seq
                         stream.push(AudioChunk(stream_id, seq, rate, channels, pcm[start:start + step], t,
                                                t + self.clock_offset_us))
+                        if seq % AUDIO_EVENT_EVERY == 0:
+                            obs.emit("body.audio", "microphone audio", body="sim", stream_id=stream_id, seq=seq,
+                                     sample_rate_hz=rate)
                     seq += 1
 
-        return spawn_stream(self._audio_queue, produce, self._producers)
+        return spawn_stream(self._audio_queue, produce, self._producers, name="microphone")
 
     # ---- speaker ---------------------------------------------------------------------------------
 
     @staticmethod
     def _check_utterance_id(utterance_id: str) -> None:
         if not isinstance(utterance_id, str) or not IDENTIFIER.match(utterance_id):
+            obs.emit("validation.failed", "utterance_id refused", parameter="utterance_id", problem="not an identifier")
             raise ValueError("utterance_id must be an identifier")
 
     async def play_audio(self, chunk: AudioChunk, *, utterance_id: str, final: bool = False) -> None:
         self.require(Capability.AUDIO_OUT)
         self._check_utterance_id(utterance_id)
         self.played.setdefault(utterance_id, []).append(chunk)
+        if chunk.seq == 0 or final:
+            obs.emit("body.speak", "speaker audio", body="sim", utterance_id=utterance_id, seq=chunk.seq, final=final)
         if final:
             self.finished_utterances.append(utterance_id)
 
@@ -315,7 +337,10 @@ class SimBody(Body):
         self.require(Capability.SPEAK_TEXT)
         self._check_utterance_id(utterance_id)
         if not isinstance(text, str) or not text:
+            obs.emit("validation.failed", "speech refused", parameter="speech", problem="not a non-empty string")
             raise ValueError("text must be a non-empty string")
+        obs.emit("body.speak", "speak text", body="sim", utterance_id=utterance_id, chars=len(text),
+                 interrupt=interrupt)
         self.spoken.append((utterance_id, text, interrupt))
 
     # ---- navigation ------------------------------------------------------------------------------
@@ -333,6 +358,7 @@ class SimBody(Body):
         self._mode = "nav"
         self._goal_count += 1
         self._goal_id = goal_id = f"nav-{self._goal_count}"
+        obs.emit("body.navigate", "navigation started", body="sim", goal_id=goal_id, state="started")
         self._emit("navigation", {"goal_id": goal_id, "state": "started"})
         self._nav_task = asyncio.create_task(self._arrive(goal_id, math.dist(start, end) / self.nav_speed_m_s))
         return goal_id

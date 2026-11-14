@@ -38,6 +38,7 @@ import itertools
 import json
 import logging
 import re
+import time
 import unicodedata
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
@@ -48,6 +49,9 @@ from typing import Any, cast
 
 from jsonschema import Draft202012Validator, validators
 
+from .. import obs
+from ..obs.redact import arg_summary
+from ..obs.supervisor import where
 from ..body.base import BodyBusy, BodyError, BodyTimeout, BodyUnavailable, NotSupported, NotYetImplemented
 from ..body.types import IDENTIFIER, ConfidenceBand, Image
 from ..limits import (ABANDONED_TASKS_PER_TOOL_MAX, LOG_KEY_MAX_CHARS, TOOL_DEFAULT_TIMEOUT_S, TOOL_NAME_MAX_CHARS,
@@ -111,7 +115,10 @@ def turn_channel(sources: Iterable[InputSource | str]) -> Channel:
     is hardened. Privileged console work therefore runs in a context with no app content in it.
     """
     listed = [InputSource(s) for s in sources]
-    return Channel.CONSOLE if listed and all(s is InputSource.LOCAL_CONSOLE for s in listed) else Channel.APP
+    channel = Channel.CONSOLE if listed and all(s is InputSource.LOCAL_CONSOLE for s in listed) else Channel.APP
+    obs.emit("channel.decision", f"turn channel {channel.value}", channel=channel.value,
+             sources=sorted({s.value for s in listed}), items=len(listed))
+    return channel
 
 
 @dataclass(frozen=True)
@@ -150,6 +157,16 @@ class Caller:
 
 APP = Caller(Channel.APP)
 CONSOLE = Caller(Channel.CONSOLE)
+
+
+def _who(caller: object) -> tuple[str, str]:
+    """(channel, band) of a caller for an event; never raises (call() must not, whatever it is given)."""
+    try:
+        if isinstance(caller, Caller):
+            return caller.channel.value, caller.band.value
+    except Exception:  # broad-except: describing the caller must never fail a call
+        pass
+    return f"<{type(caller).__name__}>", "?"
 
 
 @dataclass(frozen=True)
@@ -558,12 +575,27 @@ class ToolRegistry:
     async def call(self, name: object, args: object, caller: Caller) -> ToolResult:
         """Run one tool call, or refuse it. Does not raise (cancellation and interpreter exit aside)."""
         shown = name[:TOOL_NAME_MAX_CHARS] if isinstance(name, str) else f"<{type(name).__name__}>"
+        count, shape = arg_summary(args)
+        channel, band = _who(caller)
+        obs.emit("tool.call", f"{shown} asked", tool=shown, channel=channel, band=band, arg_count=count,
+                 arg_shape=shape)
+        t0 = time.perf_counter()
         try:
-            return await self._call(name, shown, args, caller)
+            result = await self._call(name, shown, args, caller)
         # broad-except: call() promises never to raise; anything unexpected becomes an `internal` result
-        except Exception:
+        except Exception as e:
             log.exception("tool registry failed handling %r", shown)
-            return self._result(shown, "internal")
+            obs.emit("tool.failed", f"the registry failed handling {shown}", tool=shown, error=type(e).__name__,
+                     where=where(e))
+            result = self._result(shown, "internal")
+        ms = round((time.perf_counter() - t0) * 1000, 2)
+        if result.status == "refused":
+            obs.emit("tool.refused", f"{shown} refused: {result.code}", tool=shown, code=result.code,
+                     channel=channel, band=band, detail=result.detail, ms=ms)
+        else:
+            obs.emit("tool.result", f"{shown} {result.status}", tool=shown, status=result.status, code=result.code,
+                     detail=result.detail, ms=ms, attachments=len(result.attachments))
+        return result
 
     async def _call(self, name: object, shown: str, args: object, caller: Caller) -> ToolResult:
         cat = self.catalogue
@@ -572,8 +604,13 @@ class ToolRegistry:
         spec = cat.tools.get(name) or cat.reserved[name]
         if caller.channel not in spec.channels:
             return self._refuse(name, "channel_not_permitted", caller, args)
-        if spec.sensitive and caller.channel is not Channel.CONSOLE and not caller.confirmed_by_face_and_voice:
-            return self._refuse(name, "identity_not_confirmed", caller, args)
+        if spec.sensitive:
+            allowed = caller.channel is Channel.CONSOLE or caller.confirmed_by_face_and_voice
+            obs.emit("sensitivity.decision", f"sensitive tool {name} {'allowed' if allowed else 'refused'}",
+                     tool=name, allowed=allowed, why="local console" if caller.channel is Channel.CONSOLE else
+                     "face and voice confirmed" if allowed else "identity not confirmed by face and voice")
+            if not allowed:
+                return self._refuse(name, "identity_not_confirmed", caller, args)
         if spec.reserved:
             log.info("tool %s asked for but not built yet (card %s)", name, spec.card)
             return self._result(name, "not_built")
@@ -610,8 +647,12 @@ class ToolRegistry:
                 self._shut_off.add(name)
                 log.error("tool %s has more than %d handlers that ignore cancellation; it is shut off until they end",
                           name, ABANDONED_TASKS_PER_TOOL_MAX)
+                obs.emit("tool.shut_off", f"{name} shut off: too many stuck handlers", tool=name,
+                         stuck=self._stuck[name], limit=ABANDONED_TASKS_PER_TOOL_MAX)
             task.add_done_callback(functools.partial(self._forget, tool=name))
             log.warning("tool %s timed out", name)
+            obs.emit("tool.timeout", f"{name} timed out; handler abandoned", tool=name,
+                     timeout_s=self.timeout_for(name, args), stuck=self._stuck[name])
             return self._result(name, "timeout")
         try:
             out = task.result()
@@ -637,8 +678,10 @@ class ToolRegistry:
             log.warning("tool %s: its handler was cancelled", name)
             return self._result(name, "internal")
         # broad-except: a handler bug becomes an `internal` result, never an exception in the agent loop
-        except Exception:
+        except Exception as e:
             log.exception("tool %s failed", name)
+            obs.emit("tool.failed", f"{name} handler raised {type(e).__name__}", tool=name, error=type(e).__name__,
+                     where=where(e))
             return self._result(name, "internal")
         content, attachments = (out.content, out.attachments) if isinstance(out, ToolOutput) else (out, ())
         if (not isinstance(content, dict) or not isinstance(attachments, (tuple, list))

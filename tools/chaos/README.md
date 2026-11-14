@@ -46,8 +46,21 @@ marker and its entry in `tests/chaos/test_chaos_known_defects.py` in the same co
 | no_secret_in_output | canary secrets (token, API keys) and secret shapes in log records, tracebacks, case outputs, errors and the results file |
 | right_to_refuse, fail_closed | each experiment's oracle |
 
-Structured events (card X-02): register `tools.chaos.monitors.structured_sink` as a sink of the event
-log; every event a case causes is then checked by the same hygiene rules (`tools/chaos/log_hygiene.py`).
+Structured events (card X-02, `docs/observability.md`): every case runs with
+`tools.chaos.monitors.structured_sink` registered on the brain's event log (`brain.obs.LOG`), so every
+event a case causes is checked by the same hygiene rules (`tools/chaos/log_hygiene.py`: secrets, control
+characters, size), counted against the case's line budget, and an event of a crash type
+(`supervisor.crashed`, `tool.failed`, `process.crash`: an isolation point caught an unexpected exception) is
+a `no_crash` violation unless the case injected that fault (`isolated_fault=True`). Each case starts with
+full per-type event budgets (`EventLog.reset_limits`), so its event count does not depend on the case before.
+
+X-02's own experiments (`tools/chaos/cases/observability.py`): `X-02.obs.emit` (hostile fields, canary
+secrets, forged lines, a failing event file and sink), `X-02.obs.state` (corrupt state files),
+`X-02.obs.viewer` (damaged and hostile event and health files), `X-02.obs.supervisor` (crashing, fatal and
+stubborn components), `X-02.obs.demo` (the scripted session with the link, camera and microphone
+unavailable). Manifest kinds added: `event_type` (checked attribute `status`: live or reserved) and the stores
+`health.json`, `state.json`, `events.jsonl`, `crash_report`. The process launcher starts processes, which the
+sandbox refuses: it has an `[[exempt]]` record and is covered by `tests/test_obs_crash_barrier.py`.
 
 Known blind spots: effects outside Python's audit points (C extensions with their own I/O, `ctypes`
 calls, what a child process does); a thread abandoned by a timed-out case is attributed to the next

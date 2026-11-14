@@ -127,3 +127,44 @@ PASSPHRASE_MIN_CHARS = 12  # archive passphrase. Existing (renamed from MIN_PASS
 ARCHIVE_MAX_BYTES = 8 * 1024**3  # a migration archive larger than this is refused before it is read (H-01).
 ARCHIVE_UNPACKED_MAX_BYTES = 32 * 1024**3  # bytes extracted from one archive: a gzip bomb stops here (H-01).
 ARCHIVE_MEMBERS_MAX = 200_000  # entries in one archive (a huge member count is a bomb too). Provisional.
+
+# ---- X-02 observability: live trace, health view, crash barrier (brain/obs; docs/observability.md) ------------
+# All Provisional (card X-02, 13 Nov 2026): small, bounded and dumb, so logging can never become the crash, the
+# leak or the bottleneck. Confirm by measurement at the next gate.
+OBS_EVENT_MAX_BYTES = LOG_RECORD_MAX_BYTES  # one structured event as a JSON line; the same cap as a log record.
+OBS_MESSAGE_MAX_CHARS = 300  # an event's short message.
+OBS_FIELD_MAX_CHARS = 200  # one string field of an event (peer strings are shown with %r and cut to this).
+OBS_FIELDS_MAX = 16  # fields in one event (the first ones are kept, the rest counted).
+OBS_LIST_ITEMS_MAX = 8  # items of a list field (the count is kept).
+OBS_NEST_DEPTH_MAX = 2  # nesting of dict and list fields; deeper values are replaced by their type name.
+OBS_RING_EVENTS = 2_000  # recent events kept in memory (the live view and crash reports read them).
+OBS_WRITER_QUEUE_MAX = 10_000  # events waiting for the file writer thread; beyond this they are dropped and counted.
+OBS_TYPE_BURST = 10  # events of one type at once before the per-type limit (crash events are never limited);
+#                      above an agent turn's 8 tool calls (A.4 MAX_TURN_TOOL_CALLS), so a turn is traced whole.
+OBS_TYPE_RATE_PER_S = 5.0  # sustained events per second of one type; the excess is counted, not written.
+OBS_FILE_MAX_BYTES = 5 * 1024 * 1024  # one event file (data/logs/events-*.jsonl) before the writer starts the next.
+OBS_FILES_MAX = 20  # event files kept in data/logs (oldest deleted first; LOG_FILES_MAX in Appendix A.3 is 20).
+OBS_SINK_RETRY_S = 5.0  # a failed event file (disk full, locked, read-only) is retried this often.
+OBS_WRITER_CLOSE_TIMEOUT_S = 2.0  # how long stop() waits for the writer to drain the queue.
+OBS_EMIT_BUDGET_US = 50  # emit() must cost less than this per event (measured about 10 us; tests allow a margin).
+OBS_HEALTH_INTERVAL_S = 1.0  # data/health.json is rewritten this often.
+OBS_HEALTH_STALE_S = 5.0  # a health snapshot older than this is shown as STALE (the brain is stopped or stuck).
+OBS_HEALTH_FILE_MAX_BYTES = 256 * 1024  # `health` and `watch --health` refuse a larger health.json.
+OBS_VIEW_LINE_MAX_BYTES = 16 * 1024  # the viewer skips (and counts) an event line longer than this.
+OBS_VIEW_POLL_S = 0.25  # `watch --follow` looks for new lines this often.
+OBS_DISK_LOW_BYTES = 1024**3  # free space under data/ below this: the disk source is degraded.
+OBS_DISK_MIN_BYTES = 100 * 1024**2  # below this: down.
+SUPERVISOR_RESTARTS_MAX = 5  # failures of one supervised component within the window before it is stopped.
+SUPERVISOR_WINDOW_S = 60.0  # the window those failures are counted in.
+SUPERVISOR_BACKOFF_INITIAL_S = 0.5  # first restart delay; doubles per failure in the window.
+SUPERVISOR_BACKOFF_MAX_S = 30.0  # restart delay ceiling.
+SUPERVISOR_STOP_TIMEOUT_S = 5.0  # shutdown waits this long for each component to finish after cancellation.
+LAUNCHER_RESTARTS_MAX = 5  # `serve --supervised`: unexpected child exits within the window before giving up.
+LAUNCHER_WINDOW_S = 600.0  # the launcher's window.
+LAUNCHER_BACKOFF_INITIAL_S = 1.0  # first child restart delay; doubles per exit in the window.
+LAUNCHER_BACKOFF_MAX_S = 60.0  # child restart delay ceiling.
+LAUNCHER_STOP_TIMEOUT_S = 10.0  # on Ctrl+C the launcher waits this long for the child before ending it.
+STATE_FILE_MAX_BYTES = 64 * 1024  # data/state.json; a larger file is quarantined, not parsed.
+STATE_PENDING_MAX = 64  # pending request ids kept in data/state.json.
+STATE_QUARANTINE_KEPT = 5  # quarantined (corrupt) state files kept for inspection.
+CRASH_FILES_KEPT = 20  # crash reports kept in data/crash.

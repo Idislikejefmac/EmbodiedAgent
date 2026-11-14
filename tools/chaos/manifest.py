@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fnmatch
 import importlib
 import importlib.util
 import re
@@ -36,6 +37,9 @@ from brain.config import REPO_ROOT
 MANIFEST_PATH = Path(__file__).with_name("manifest.toml")
 MANIFEST_MAX_BYTES = 1024 * 1024
 SCHEMA_VERSION = 1
+# [[exempt]]: entry points that cannot be exercised yet (hardware, or a later card). Each states why and
+# which card will cover them; the run counts them separately from "no experiment yet".
+EXEMPT_KEYS = frozenset({"ids", "card", "reason"})
 
 KINDS = (
     "tool", "reserved_tool", "tool_param",
@@ -43,6 +47,7 @@ KINDS = (
     "body_method", "body_impl", "body_impl_method", "capability", "body_kind",
     "cli_command", "cli_arg", "config_key", "env_var", "store", "file_site", "net_module", "egress_host",
     "android_component", "android_action",
+    "event_type",  # card X-02: the structured event types (brain/obs/events.py EVENT_TYPES)
 )
 # Attributes the drift check compares (security-relevant); other keys are reviewer annotations.
 CHECKED_ATTRS: dict[str, tuple[str, ...]] = {
@@ -52,9 +57,10 @@ CHECKED_ATTRS: dict[str, tuple[str, ...]] = {
     "close_code": ("code",),
     "binary_type": ("code",),
     "android_component": ("exported", "permission"),
+    "event_type": ("status",),  # live or reserved: a type that moves from reserved to live is reviewed
 }
 COMMON_KEYS = frozenset({"id", "kind", "card", "boundary", "note"})
-_CARD = re.compile(r"^(P\d-\d\d|X-01|SYS|AND)$")
+_CARD = re.compile(r"^(P\d-\d\d|X-0\d|SYS|AND)$")  # X-01 the harness, X-02 the live trace and crash barrier
 _BOUNDARY = re.compile(r"^B\d{1,2}$")
 _LIMIT_HOME = re.compile(r"^([a-z_][a-z0-9_.]*:[A-Z][A-Z0-9_]*|spec:.+|literal:.+|provisional(:.*)?)$")
 
@@ -97,6 +103,7 @@ class Manifest:
     gates: list[dict[str, Any]]
     limits: dict[str, str]
     path: Path = MANIFEST_PATH
+    exempt: list[dict[str, Any]] = field(default_factory=list)  # documented exemptions (see EXEMPT_KEYS)
 
     def ids(self, kind: str | None = None) -> set[str]:
         return {i for i, e in self.entries.items() if kind is None or e["kind"] == kind}
@@ -104,6 +111,13 @@ class Manifest:
     def all_ids(self) -> set[str]:
         """Entry ids plus `gate.<name>` for each gate (experiments may name either)."""
         return set(self.entries) | {f"gate.{g['name']}" for g in self.gates}
+
+    def exemption_for(self, entry_id: str) -> dict[str, Any] | None:
+        """The [[exempt]] record that covers this id (exact or glob), if any."""
+        for ex in self.exempt:
+            if any(entry_id == p or fnmatch.fnmatchcase(entry_id, p) for p in ex["ids"]):
+                return ex
+        return None
 
     def card_of(self, entry_id: str) -> str | None:
         e = self.entries.get(entry_id)
@@ -139,7 +153,7 @@ def load_manifest(path: Path | None = None, text: str | None = None) -> Manifest
     problems: list[str] = []
     if doc.get("schema") != SCHEMA_VERSION:
         problems.append(f"schema must be {SCHEMA_VERSION}")
-    unknown_top = set(doc) - {"schema", "entry", "gate", "limits"}
+    unknown_top = set(doc) - {"schema", "entry", "gate", "limits", "exempt"}
     if unknown_top:
         problems.append(f"unknown top-level keys {sorted(unknown_top)}")
     entries: dict[str, dict[str, Any]] = {}
@@ -190,13 +204,30 @@ def load_manifest(path: Path | None = None, text: str | None = None) -> Manifest
             problems.append(f"gate {g['name']}: listed twice")
         seen_gates.add(g["name"])
         gates.append(g)
+    exempt: list[dict[str, Any]] = []
+    raw_exempt = doc.get("exempt", [])
+    for i, x in enumerate(raw_exempt if isinstance(raw_exempt, list) else []):
+        where = f"exempt {i}"
+        if not isinstance(x, dict) or set(x) != EXEMPT_KEYS:
+            problems.append(f"{where} needs exactly ids, card and reason")
+            continue
+        if not isinstance(x["ids"], list) or not x["ids"] or not all(isinstance(v, str) and v for v in x["ids"]):
+            problems.append(f"{where}: ids must be a non-empty list of entry ids or patterns")
+        elif not isinstance(x["card"], str) or not _CARD.match(x["card"]):
+            problems.append(f"{where}: card {x['card']!r} is not a card id")
+        elif not isinstance(x["reason"], str) or len(x["reason"].strip()) < 30:
+            problems.append(f"{where}: say why in at least 30 characters, and what will cover it")
+        else:
+            exempt.append(x)
+    if isinstance(raw_exempt, list) is False:
+        problems.append("exempt must be an array of tables")
     limits = doc.get("limits", {})
     if not isinstance(limits, dict) or not all(isinstance(v, str) and _LIMIT_HOME.match(v) for v in limits.values()):
         problems.append("limits must map names to 'module:ATTR', 'spec:...', 'literal:...' or 'provisional'")
         limits = {}
     if problems:
         raise ManifestError("manifest rejected:\n  " + "\n  ".join(problems))
-    return Manifest(entries, gates, dict(limits), p)
+    return Manifest(entries, gates, dict(limits), p, exempt)
 
 
 # ---- discovery -------------------------------------------------------------------------------------------
@@ -524,6 +555,19 @@ def discover_stores(out: Discovered) -> None:
     mig = (REPO_ROOT / "tools" / "migrate.py")
     if mig.exists() and "MAGIC" in mig.read_text(encoding="utf-8"):
         _add(out, "store", "migration_archive")
+    from brain.obs import crash, health, pipeline, state  # card X-02: the observability files under data/
+
+    for name in (health.HEALTH_FILE, state.STATE_FILE, f"{pipeline.EVENT_FILE_PREFIX.rstrip('-')}{pipeline.EVENT_FILE_SUFFIX}",
+                 f"{crash.CRASH_DIR}_report"):
+        _add(out, "store", _store_id(name))
+
+
+def discover_event_types(out: Discovered) -> None:
+    """Card X-02: every structured event type in the catalogue (brain/obs/events.py)."""
+    from brain.obs.events import EVENT_TYPES
+
+    for name, spec in EVENT_TYPES.items():
+        _add(out, "event_type", name, status=spec.status)
 
 
 def _qualname_index(tree: ast.Module) -> list[tuple[str, ast.AST]]:
@@ -609,7 +653,7 @@ def discover_android(out: Discovered) -> None:
 DISCOVERERS: list[Callable[[Discovered], None]] = [
     discover_tools, discover_protocol, discover_ws_options, discover_body, discover_cli, discover_config_keys,
     discover_env_vars, discover_stores, discover_file_sites, discover_net_modules, discover_egress_hosts,
-    discover_android,
+    discover_android, discover_event_types,
 ]
 
 
@@ -701,7 +745,7 @@ DEFAULT_CARD = {
     "ws_option": "P0-05", "body_method": "P0-06", "body_impl": "P0-06", "body_impl_method": "P0-06",
     "capability": "P0-06", "body_kind": "P0-06", "cli_command": "P0-04", "cli_arg": "P0-04", "config_key": "P0-04",
     "env_var": "P0-04", "store": "P0-04", "file_site": "P0-04", "net_module": "P0-06", "egress_host": "P0-06",
-    "android_component": "P0-05", "android_action": "P0-05",
+    "android_component": "P0-05", "android_action": "P0-05", "event_type": "X-02",
 }
 DEFAULT_BOUNDARY = {
     "tool": "B6", "reserved_tool": "B6", "tool_param": "B7", "message": "B1", "field": "B1", "command": "B1",
@@ -709,17 +753,21 @@ DEFAULT_BOUNDARY = {
     "body_method": "B3", "body_impl": "B3", "body_impl_method": "B3", "capability": "B3", "body_kind": "B10",
     "cli_command": "B11", "cli_arg": "B11", "config_key": "B10", "env_var": "B11", "store": "B10",
     "file_site": "B10", "net_module": "B13", "egress_host": "B13", "android_component": "B12",
-    "android_action": "B12",
+    "android_action": "B12", "event_type": "B10",
 }
 
 
 def _card_for(eid: str, kind: str) -> str:
     text = eid.lower()
     if kind in ("cli_command", "cli_arg"):
-        for key, card in (("brain.serve", "P0-05"), ("brain.probe", "P0-05"), ("brain.pair", "P0-05"),
-                          ("brain.body-check", "P0-06"), ("brain.chaos", "X-01"), ("chaos.", "X-01")):
+        for key, card in (("brain.serve.--supervised", "X-02"), ("brain.serve", "P0-05"), ("brain.probe", "P0-05"),
+                          ("brain.pair", "P0-05"), ("brain.body-check", "P0-06"), ("brain.chaos", "X-01"),
+                          ("chaos.", "X-01"), ("brain.watch", "X-02"), ("brain.health", "X-02"),
+                          ("brain.demo-trace", "X-02")):
             if text.startswith(f"{kind}.{key}"):
                 return card
+    if kind in ("file_site", "net_module") and "/obs/" in text:
+        return "X-02"
     if kind in ("file_site", "net_module"):
         if "/transport/" in text:
             return "P0-05"

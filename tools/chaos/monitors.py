@@ -40,9 +40,10 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
-from brain import egress
+from brain import egress, obs
 from brain.config import REPO_ROOT
 from brain.limits import LOG_RECORD_MAX_BYTES, PEER_LOG_LINES_PER_MIN_MAX
+from brain.obs.events import CRASH_TYPES as CRASH_EVENT_TYPES
 
 from . import log_hygiene
 from . import thresholds as T
@@ -69,6 +70,7 @@ IMPORT_ALLOWED_FILES = {  # repo-relative file -> modules it may import (mirrors
     "brain/egress.py": None,  # None: anything
     "brain/transport/auth.py": {"subprocess", "ctypes"},
     "brain/body/phone.py": {"subprocess"},
+    "brain/obs/launcher.py": {"subprocess"},  # `serve --supervised` (card X-02)
 }
 TOKEN_STORE_FILE = "brain/transport/auth.py"  # the only code allowed to read a secrets folder
 HARNESS_DIR = "tools/chaos/"
@@ -167,6 +169,7 @@ class CaseMonitors:
     max_log_lines: int = PEER_LOG_LINES_PER_MIN_MAX
     allow_isolated_traceback: bool = False  # the case injected the fault an isolation point reports
     structured_count: int = 0
+    crash_event_seen: bool = False
     violations: list[Violation] = field(default_factory=list)
     logs: LogCapture = field(default_factory=LogCapture)
     effects: list[str] = field(default_factory=list)  # every forbidden effect seen, as text
@@ -191,10 +194,13 @@ class CaseMonitors:
             self._mem_start = tracemalloc.get_traced_memory()[0]
         global _ACTIVE
         _ACTIVE = self
+        obs.LOG.reset_limits()  # each case starts with full per-type event budgets (deterministic counts)
+        obs.LOG.add_sink(structured_sink)  # card X-02: every event the case causes is checked
 
     def finish(self) -> list[Violation]:
         global _ACTIVE
         _ACTIVE = None
+        obs.LOG.remove_sink(structured_sink)
         root = logging.getLogger()
         root.removeHandler(self.logs)
         root.setLevel(self._saved_level)
@@ -288,6 +294,15 @@ class CaseMonitors:
             self.violation(invariant, f"structured event: {f}")
         if self.structured_count == self.max_log_lines + 1:
             self.violation("bounded_resources", f"more than {self.max_log_lines} structured events in one case")
+        # Card X-02: an event of a crash type (an isolation point or the supervisor caught an unexpected
+        # exception) is a crash, masked, unless the case injected that fault itself.
+        if (isinstance(event, dict) and event.get("type") in CRASH_EVENT_TYPES and not self.allow_isolated_traceback
+                and not self.crash_event_seen):
+            self.crash_event_seen = True
+            raw = event.get("f")
+            fields: dict[str, Any] = raw if isinstance(raw, dict) else {}
+            self.violation("no_crash", f"structured event {event.get('type')}: {str(event.get('msg', ''))[:120]} "
+                                       f"({fields.get('error')} at {fields.get('where')})")
 
     # ---- audit events ----
 

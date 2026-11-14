@@ -9,7 +9,9 @@
 # [[waiver]] card, rule (0 to 6), item (a risk or promise id, or "*"), reason, owner, expires (YYYY-MM-DD)
 #
 # Seeded on 13 Nov 2026 by `python tools/trace.py seed` from doc 10 rows marked Existing (only rows whose
-# function name matches exactly one collected test), then spot-checked. Stage 1b maps the rest.
+# function name matches exactly one collected test), then spot-checked. Stage 1b (below, "stage 1b" sections) maps the
+# hardening, limits, config, flood, chaos and new X-01 tests: H-item groups take the T- ids that docs/testing/10 and 50 give
+# those H-items; files without a verified id are owned by their card through [[file]] (no id is invented).
 
 schema = 1
 
@@ -441,3 +443,109 @@ ids = ["T-P0-06-016"]
 node = "tests/test_egress.py::test_websocket_client_to_an_unlisted_host_fails"
 ids = ["T-P0-06-016"]
 
+# ---- stage 1b: file ownership ----
+[[file]]
+path = "tests/test_hardening_batch1.py"
+card = "P0-06"
+[[file]]
+path = "tests/test_hardening_batch2.py"
+card = "P0-05"
+[[file]]
+path = "tests/test_config_gate.py"
+card = "P0-04"
+[[file]]
+path = "tests/test_limits.py"
+card = "P0-04"
+[[file]]
+path = "tests/test_transport_loopback.py"
+card = "P0-05"
+[[file]]
+path = "tests/chaos/test_chaos_api.py"
+card = "X-01"
+[[file]]
+path = "tests/chaos/test_chaos_known_defects.py"
+card = "X-01"
+[[file]]
+path = "tests/chaos/test_chaos_properties.py"
+card = "X-01"
+[[file]]
+path = "tests/chaos/test_chaos_trace.py"
+card = "X-01"
+[[file]]
+path = "tests/chaos/test_chaos_network_policy.py"
+card = "X-01"
+[[file]]
+path = "tests/test_cli_end_to_end.py"
+card = "X-01"
+[[file]]
+path = "tests/test_stateful_properties.py"
+card = "X-01"
+[[file]]
+path = "tests/test_gate_edges.py"
+card = "X-01"
+[[file]]
+path = "tests/test_lint.py"
+card = "X-01"
+
+# ---- stage 1b: hardening batches 1 and 2 (H-item groups) and the new X-01 tests ----
+[[test]]
+node = "tests/test_hardening_batch2.py::test_h01_*"
+ids = ["T-P0-04-024", "T-P0-04-025", "T-P0-04-026", "T-P0-04-027"]
+risks = ["R-FND-12"]
+[[test]]
+node = "tests/test_hardening_batch2.py::test_h33_*"
+ids = ["T-P0-04-024", "T-P0-04-025", "T-P0-04-026", "T-P0-04-027"]
+[[test]]
+node = "tests/test_hardening_batch2.py::test_h04_*"
+ids = ["T-P0-05-040", "T-P0-05-041", "T-P0-05-042", "T-P0-05-083"]
+[[test]]
+node = "tests/test_hardening_batch2.py::test_h09_*"
+ids = ["T-P0-05-040", "T-P0-05-041", "T-P0-05-042"]
+[[test]]
+node = "tests/test_hardening_batch2.py::test_h10_*"
+ids = ["T-P0-06-061"]
+[[test]]
+node = "tests/test_hardening_batch2.py::test_h34_*"
+ids = ["T-P0-06-031"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h06_*"
+ids = ["T-P0-05-071", "T-X01-038"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h08_*"
+ids = ["T-P0-05-047"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h12_*"
+ids = ["T-P0-05-075"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h13_*"
+ids = ["T-P0-04-038"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h18_*"
+ids = ["T-P0-04-012", "T-P0-04-013", "T-P0-04-018"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h19_*"
+ids = ["T-P0-05-072", "T-P0-05-073", "T-P0-05-074"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h20_*"
+ids = ["T-P0-06-062"]
+[[test]]
+node = "tests/test_hardening_batch1.py::test_h31_*"
+ids = ["T-P0-06-074"]
+[[test]]
+node = "tests/test_stateful_properties.py::test_*"
+ids = ["T-X01-009"]
+risks = ["R-FND-31"]
+[[test]]
+node = "tests/chaos/test_chaos_properties.py::test_*"
+ids = ["T-X01-007"]
+risks = ["R-FND-31"]
+[[test]]
+node = "tests/chaos/test_chaos_known_defects.py::test_no_assert_is_used_for_checks"
+ids = ["T-X01-038"]
+[[test]]
+node = "tests/test_gate_edges.py::test_*"
+risks = ["R-FND-31"]
+[[test]]
+node = "tests/test_cli_end_to_end.py::test_*"
+ids = ["T-P0-04-012", "T-P0-04-013"]
+risks = ["R-FND-31"]

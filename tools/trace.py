@@ -140,7 +140,7 @@ def parse_docs(paths: list[Path], model: Model) -> None:
 
 def collect(out: Path = COLLECTED) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "--trace-out", str(out),
+    subprocess.run([sys.executable, "-m", "pytest", "tests", "--collect-only", "-q", "--trace-out", str(out),
                     "-p", "no:cacheprovider"], cwd=REPO, capture_output=True, text=True, timeout=600)
     if not out.exists():
         raise SystemExit("collection did not write its output; run pytest --collect-only to see why")

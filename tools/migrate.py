@@ -120,10 +120,12 @@ def _read_archive(archive: Path) -> bytes:
     size = archive.stat().st_size
     if size > ARCHIVE_MAX_BYTES:
         raise ValueError(f"Archive is {size} bytes; larger than the {ARCHIVE_MAX_BYTES} this tool accepts")
+    # Ask for the file's real size plus one byte, never for the limit: BufferedReader.read(n) allocates n bytes
+    # up front, so read(ARCHIVE_MAX_BYTES + 1) reserved 8 GiB even for a tiny file (found by the chaos full run).
     with open(archive, "rb") as f:
-        blob = f.read(ARCHIVE_MAX_BYTES + 1)
-    if len(blob) > ARCHIVE_MAX_BYTES:  # it grew while we looked
-        raise ValueError(f"Archive is larger than the {ARCHIVE_MAX_BYTES} bytes this tool accepts")
+        blob = f.read(size + 1)
+    if len(blob) > size or len(blob) > ARCHIVE_MAX_BYTES:  # it grew while we looked
+        raise ValueError(f"Archive grew while it was being read or is larger than the {ARCHIVE_MAX_BYTES} bytes this tool accepts")
     return blob
 
 

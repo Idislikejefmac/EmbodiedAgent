@@ -377,6 +377,123 @@ entry = [
   { id = "android_action.debug.RECONNECT", kind = "android_action", card = "P0-05", boundary = "B12" },
   { id = "android_action.debug.STOP", kind = "android_action", card = "P0-05", boundary = "B12" },
   { id = "android_action.debug.UNPAIR", kind = "android_action", card = "P0-05", boundary = "B12" },
+
+  # ---- X-02: live trace, health view and crash barrier (brain/obs; docs/observability.md) ----
+  # event_type status: live = emitted by today's code; reserved = named for a later card (P0-07 and on).
+  { id = "cli_arg.brain.demo-trace.--detail", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.demo-trace.--no-files", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.demo-trace.--unavailable", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.serve.--supervised", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--component", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--detail", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--follow", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--health", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--level", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--session", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--since", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--source", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--turn", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--type", kind = "cli_arg", card = "X-02", boundary = "B11" },
+  { id = "cli_command.brain.demo-trace", kind = "cli_command", card = "X-02", boundary = "B11" },
+  { id = "cli_command.brain.health", kind = "cli_command", card = "X-02", boundary = "B11" },
+  { id = "cli_command.brain.watch", kind = "cli_command", card = "X-02", boundary = "B11" },
+  { id = "event_type.body.audio", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.capabilities", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.close", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.event", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.frame", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.link", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.navigate", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.not_supported", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.request", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.speak", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.start", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.status", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.stop", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.body.stream", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.brain.start", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.brain.stop", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.budget.check", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.budget.stop", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.channel.decision", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.clock.estimate", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.clock.reset", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.config.error", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.config.loaded", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.cost.update", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.demo.step", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.egress.denied", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.flood.closed", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.flood.rate_limited", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.flood.too_large", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.health.change", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.identity.decision", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.launcher.exit", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.launcher.gave_up", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.launcher.restart", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.launcher.start", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.auth", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.connect", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.down", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.evicted", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.forward", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.peer_error", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.refused", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.replaced", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.session_summary", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.unconsumed", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.link.up", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.model.call_end", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.model.call_start", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.obs.bad_event", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.obs.dropped", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.obs.sink_failed", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.obs.sink_recovered", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.obs.started", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.pair.result", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.probe.result", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.process.crash", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.prompt.capture_ref", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.queue.busy", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.queue.drop", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.sensitivity.decision", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.speech.stt", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.speech.tts", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.startup.refused", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.startup.self_test", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.state.loaded", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.state.quarantined", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.state.save_failed", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.supervisor.crashed", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.supervisor.fatal", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.supervisor.gave_up", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.supervisor.restart", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.supervisor.started", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.supervisor.stopped", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.tool.call", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.tool.failed", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.tool.refused", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.tool.result", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.tool.shut_off", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.tool.timeout", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.turn.end", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.turn.start", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.validation.failed", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "event_type.watchdog.fired", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
+  { id = "file_site.brain/obs/crash.py:write_report", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/files.py:atomic_write_text", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/files.py:read_capped", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/pipeline.py:EventWriter._open_next", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/pipeline.py:EventWriter._prune", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/state.py:StateStore._quarantine", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/viewer.py:Follower.poll", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/viewer.py:event_files", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "file_site.brain/obs/viewer.py:read_events", kind = "file_site", card = "X-02", boundary = "B10" },
+  { id = "net_module.brain/obs/launcher.py:subprocess", kind = "net_module", card = "X-02", boundary = "B13" },
+  { id = "store.crash_report", kind = "store", card = "X-02", boundary = "B10" },
+  { id = "store.events.jsonl", kind = "store", card = "X-02", boundary = "B10" },
+  { id = "store.health.json", kind = "store", card = "X-02", boundary = "B10" },
+  { id = "store.state.json", kind = "store", card = "X-02", boundary = "B10" },
 ]
 
 # ---- gate functions (docs/testing/00 section 4.4: E1a and E1b read this table) ---------------------------
@@ -570,6 +687,16 @@ produces = "Manifest"
 limits = ["MANIFEST_MAX_BYTES"]
 card = "X-01"
 
+# ---- documented exemptions (stage 1b): entry points the Python harness cannot exercise ------------------
+# Each names why and the card that covers it. A stale exemption (no such entry, or the entry now has an
+# experiment) fails the run. Android code runs on a phone; its wire parsers are fuzzed on the JVM by
+# body-android HostileCorpusTest (shared corpus protocol/corpus/v0-hostile.json), the rest needs a device.
+
+[[exempt]]
+ids = ["android_component.*", "android_action.*"]
+card = "AND"
+reason = "needs a phone or emulator (Intents, services, permissions); planned as T-AND-009 intent fuzz, T-AND-010 permission enforcement and T-AND-012 flood chaos on the device; the parsers behind them are fuzzed by the Kotlin HostileCorpusTest"
+
 # ---- limits: Appendix A name -> where it lives today -----------------------------------------------------
 # "module:ATTR" must import and be a number (checked); "spec:", "literal:" and "provisional" are text.
 # H-11 (hardening batch 2): every runtime limit lives in brain/limits.py; spec: rows are data-file maxima.
@@ -643,3 +770,9 @@ HELLO_NAMES_MAX = "spec:protocol/v0.schema.json hello.capabilities maxItems"
 ECHO_TEXT_MAX_CHARS = "spec:protocol/v0.schema.json echo.text maxLength"
 SPOKEN_TEXT_MAX_CHARS = "spec:brain/agent/tools.v0.json speak.text maxLength"
 JSON_MAX_DEPTH = "provisional: not enforced; deep nesting is caught only as RecursionError"
+
+# ---- X-02: the process launcher starts processes, which the chaos sandbox refuses ----
+[[exempt]]
+ids = ["cli_arg.brain.serve.--supervised", "net_module.brain/obs/launcher.py:subprocess"]
+card = "X-02"
+reason = "serve --supervised starts the brain as a child process, which the chaos sandbox refuses by design; covered by tests/test_obs_crash_barrier.py (clean stop, fail-closed exit 2 never restarted, bounded restarts with backoff, crash file)"

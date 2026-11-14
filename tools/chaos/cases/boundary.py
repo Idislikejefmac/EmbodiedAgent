@@ -427,8 +427,8 @@ def gen_cli(g: Gen) -> list[Case]:
     hypothesis="Every numeric command-line flag accepts its stated range and refuses anything else at parse "
                "time with a usage message (exit 2), never a traceback.",
     blast_radius="pure", valid=_only(CaseClass.VALID, gen_cli), invalid=_only(CaseClass.INVALID, gen_cli),
-    hostile=not_applicable("stage 1b: string flags (--host, paths) and running each command end to end"),
-    failure=not_applicable("stage 1b: commands run in a child process with a broken environment"))
+    hostile=not_applicable("string flags and every command end to end, in a child process, are tests/test_cli_end_to_end.py (a harness case may not start processes); the chaos flags are X-01.cli_env.flags_and_environment"),
+    failure=not_applicable("a broken environment (USERNAME, SystemRoot, LOCALAPPDATA) is X-01.cli_env.flags_and_environment; the commands in a child process are tests/test_cli_end_to_end.py"))
 def check_cli(case: Case, ctx: Ctx) -> Any:
     d = case.data
     parser = _parser(d["program"])

@@ -25,6 +25,7 @@ import importlib
 import json
 import pkgutil
 import random
+import re
 import reprlib
 import sys
 import threading
@@ -112,6 +113,7 @@ class RunReport:
     static: list[str] = field(default_factory=list)
     results: list[CaseResult] = field(default_factory=list)
     uncovered: list[str] = field(default_factory=list)
+    exempt: dict[str, str] = field(default_factory=dict)  # entry id -> the card that will cover it
     not_applicable: dict[str, str] = field(default_factory=dict)
     digests: dict[str, str] = field(default_factory=dict)
     harness_problems: list[str] = field(default_factory=list)
@@ -146,7 +148,7 @@ class RunReport:
             "schema": 1, "date": self.started, "commit": self.commit, "mode": self.mode, "seeds": self.seeds,
             "plant": self.plant, "duration_s": round(self.duration_s, 3), "ok": self.ok, "counts": self.counts(),
             "invariants": self.invariants(), "static": self.static, "harness_problems": self.harness_problems,
-            "uncovered_entries": self.uncovered, "not_applicable": self.not_applicable,
+            "uncovered_entries": self.uncovered, "exempt_entries": self.exempt, "not_applicable": self.not_applicable,
             "case_list_digest": self.digests, "experiments": {k: dict(v) for k, v in sorted(per_exp.items())},
             "failures": [asdict(r) for r in self.failures],
             "expected_failures": [{"case_id": r.case_id, "known_defect": r.known_defect, "seed": r.seed,
@@ -279,10 +281,14 @@ def generate(exp: Experiment, seed: int, mode: str) -> list[tuple[str, Case, int
     return out
 
 
+_ADDRESS = re.compile(r"0x[0-9a-fA-F]+")
+
+
 def digest(cases: list[tuple[str, Case, int]]) -> str:
     h = hashlib.sha256()
     for case_id, case, case_seed in cases:
-        h.update(f"{case_id}|{case.name}|{case_seed}|{sorted(case.tags)}|{short(case.data, 200)}\n".encode())
+        data = _ADDRESS.sub("0x", short(case.data, 200))  # a default repr holds a memory address that changes per run
+        h.update(f"{case_id}|{case.name}|{case_seed}|{sorted(case.tags)}|{data}\n".encode())
     return h.hexdigest()[:16]
 
 
@@ -304,7 +310,8 @@ def preflight() -> None:
 
 
 def static_checks(exps: dict[str, Experiment]) -> tuple[list[str], list[str]]:
-    """(problems, uncovered entry ids). Problems fail the run."""
+    """(problems, uncovered entry ids). Problems fail the run. Entries a manifest [[exempt]] record covers are
+    not "uncovered"; `exempt_entries` lists them."""
     problems: list[str] = []
     m = manifest_mod.load_manifest()
     problems += manifest_mod.drift(m).lines()
@@ -319,7 +326,19 @@ def static_checks(exps: dict[str, Experiment]) -> tuple[list[str], list[str]]:
             if not hits:
                 problems.append(f"experiment {exp.id} names {pattern!r}, which matches no manifest entry")
             covered |= hits
-    return problems, sorted(known - covered)
+    exempt = exempt_entries(m)
+    for ex in m.exempt:
+        hits = {i for i in known if any(i == p or fnmatch.fnmatchcase(i, p) for p in ex["ids"])}
+        if not hits:
+            problems.append(f"exemption {ex['ids'][:2]} matches no manifest entry (stale: delete it)")
+        elif hits <= covered:
+            problems.append(f"exemption {ex['ids'][:2]} covers only entries that now have an experiment; delete it")
+    return problems, sorted(known - covered - set(exempt))
+
+
+def exempt_entries(m: manifest_mod.Manifest) -> dict[str, str]:
+    """Entry id -> the card that will cover it, for every entry a documented [[exempt]] record names."""
+    return {i: ex["card"] for i in sorted(m.all_ids()) if (ex := m.exemption_for(i)) is not None}
 
 
 @contextlib.contextmanager
@@ -357,6 +376,7 @@ def run(mode: str = "quick", seeds: list[int] | None = None, only: list[str] | N
         with planted_ctx, _sandboxed(sandbox_parent) as sb:
             report.canaries = dict(sb.canaries)
             report.static, report.uncovered = static_checks(exps)
+            report.exempt = exempt_entries(manifest_mod.load_manifest())
             if strict_coverage and report.uncovered:
                 report.static.append(f"{len(report.uncovered)} manifest entries have no experiment (--strict-coverage)")
             for exp in exps.values():
@@ -442,7 +462,11 @@ def summary(report: RunReport) -> str:
         lines.append("  recorded defects reproduced (expected failures):")
         for d in sorted({r.known_defect or "" for r in xf}):
             lines.append(f"    {d} ({sum(1 for r in xf if r.known_defect == d)} cases)")
-    lines.append(f"  entry points with no experiment yet: {len(report.uncovered)} (stage 1b adds them)")
+    lines.append(f"  entry points with no experiment yet: {len(report.uncovered)}"
+                 + (f" ({len(report.exempt)} more are documented exemptions, see the manifest [[exempt]] records)"
+                    if report.exempt else ""))
+    for entry in report.uncovered[:20]:
+        lines.append(f"    uncovered: {entry}")
     if report.mode == "quick" and report.duration_s > T.QUICK_SUITE_MAX_S:
         lines.append(f"  WARNING quick mode took {report.duration_s:.1f} s, over its {T.QUICK_SUITE_MAX_S:g} s budget")
     lines.append("  RESULT: " + ("PASS" if report.ok else "FAIL"))
@@ -490,7 +514,17 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _safe_streams() -> None:
+    """A failure line may hold any character the case sent (a fullwidth digit, a lone surrogate); a console
+    code page such as cp1252 must not turn that into a UnicodeEncodeError traceback (found in stage 1b)."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="backslashreplace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _safe_streams()
     args = build_parser().parse_args(argv)
     mode = args.mode or "quick"
     try:

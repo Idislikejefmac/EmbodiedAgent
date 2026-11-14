@@ -1,0 +1,575 @@
+# Adoption baseline for tools/lint.py (docs/testing/00 section 4.5). Keyed by symbol, never by line.
+# A new violation fails; an entry that no longer matches fails as stale (delete it); counts and
+# max_entries may only fall. Written by `python tools/lint.py e1a --write-baseline`; changes by hand
+# only to LOWER a count or delete an entry.
+
+[meta]
+max_entries = 71
+
+[[entry]]
+check = "E1a"
+file = "brain/agent/tools.py"
+symbol = "ToolRegistry.timeout_for"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/agent/tools.py"
+symbol = "catalogue_problems"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/__init__.py"
+symbol = "create_body"
+count = 3
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/base.py"
+symbol = "check_real"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/base.py"
+symbol = "check_whole"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/link.py"
+symbol = "LinkBody.__init__"
+count = 2
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/phone.py"
+symbol = "PhoneBody.__init__"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/phone.py"
+symbol = "pair"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/sim_assets.py"
+symbol = "decode_png"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/sim_assets.py"
+symbol = "image_size"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/sim_assets.py"
+symbol = "png_from_rgb"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/sim_assets.py"
+symbol = "read_wav"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/sim_assets.py"
+symbol = "shrink_png"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/sim_assets.py"
+symbol = "wav_bytes"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/streams.py"
+symbol = "spawn_stream"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "AudioChunk.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "BodyEvent.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "BodyStatus.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "ClockSync.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "Image.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "NavGoal.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "Pose.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "Speaker.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/body/types.py"
+symbol = "Utterance.from_json"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/config.py"
+symbol = "as_config"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/config.py"
+symbol = "key_presence"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/config.py"
+symbol = "schema_paths"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/auth.py"
+symbol = "check"
+count = 2
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/auth.py"
+symbol = "proof"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/client.py"
+symbol = "TestBodyClient.__init__"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/flood.py"
+symbol = "FloodGuard.__init__"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/link.py"
+symbol = "Link.__init__"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/link.py"
+symbol = "Link.is_expected_reply"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/link.py"
+symbol = "Link.request"
+count = 2
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/link.py"
+symbol = "Link.send"
+count = 2
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "check_data"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "check_link_timing"
+count = 2
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "check_message_id"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "check_seconds"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "check_timeout"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "check_timestamp"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "crc32"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "encode"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "has_binary"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "make_message"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "pack_binary"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "schema_errors"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/protocol.py"
+symbol = "valid_id"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1a"
+file = "brain/transport/server.py"
+symbol = "BrainServer.__init__"
+count = 1
+fix = "typed boundary objects (H-02 follow-up)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.agent.tools.Caller"
+count = 4
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.agent.tools.Catalogue.from_json"
+count = 7
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.agent.tools.ToolRegistry.call"
+count = 25
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.body.types.BodyEvent"
+count = 4
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.body.types.BodyStatus"
+count = 1
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.body.types.Image"
+count = 10
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.body.types.NavGoal"
+count = 4
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.body.types.Pose"
+count = 7
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.config.load_config"
+count = 16
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.config.parse_config"
+count = 6
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.config.parse_env_file"
+count = 7
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.egress.EgressPolicy.from_config"
+count = 1
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.egress.EgressPolicy.from_hosts"
+count = 1
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.transport.auth.load_or_create_token"
+count = 7
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.transport.flood.FloodGuard"
+count = 25
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.transport.link.Link.recv"
+count = 13
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.transport.protocol.check_pair"
+count = 1
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.transport.protocol.decode"
+count = 4
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "brain.transport.protocol.validate"
+count = 40
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "tools.chaos.manifest.load_manifest"
+count = 4
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "tools.migrate.restore_data"
+count = 16
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"
+
+[[entry]]
+check = "E1b"
+file = "tools/chaos/manifest.toml"
+symbol = "tools.migrate.verify_archive"
+count = 13
+fix = "gate edge tests (stage 1b adds the first ones)"
+card = "X-01"

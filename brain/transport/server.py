@@ -13,7 +13,8 @@ from datetime import UTC, datetime
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from .. import __version__
+from .. import __version__, obs
+from ..obs.supervisor import watch_task, where
 from ..limits import (HANDLER_QUEUE_MAX_BYTES, HANDSHAKE_TIMEOUT_S, PEER_MSG_BURST, PEER_MSG_MAX_PER_S,
                       PEER_RATE_SANITY_MAX, PORT_MAX, SEND_TIMEOUT_S, TOKEN_MIN_BYTES, WS_RECV_QUEUE_FRAMES)
 # Re-exported (H-11): these limits live in brain/limits.py.
@@ -164,7 +165,22 @@ class BrainServer:
         return est
 
     async def _handle(self, ws: ServerConnection) -> None:
+        """One connection, under the crash barrier: whatever goes wrong in it is reported with the session
+        id and contained to this connection (it is dropped); the server and other connections go on."""
         session_id = new_session_id()
+        with obs.correlate(session=session_id):
+            try:
+                await self._connection(ws, session_id)
+            except Exception as e:  # broad-except: the per-connection crash barrier; reported, then the link drops
+                log.error("connection %s failed (%s at %s); dropped", session_id, type(e).__name__, where(e),
+                          exc_info=e)
+                obs.emit("supervisor.crashed", f"connection handler raised {type(e).__name__}",
+                         component="link.connection", error=type(e).__name__, where=where(e))
+                transport = getattr(ws, "transport", None)
+                if transport is not None:
+                    transport.abort()
+
+    async def _connection(self, ws: ServerConnection, session_id: str) -> None:
         slog = logging.getLogger(f"brain.transport.{session_id}")
         log_limit = PeerLogLimit(slog)  # at most PEER_LOG_LINES_PER_MIN_MAX lines a minute from this connection
         slog.addFilter(log_limit)
@@ -173,11 +189,14 @@ class BrainServer:
         link = Link(ws, p.BRAIN, log=slog, heartbeat_s=self.heartbeat_s, liveness_s=self.liveness_s,
                     send_timeout_s=self.send_timeout_s)
         slog.info("connection from %s", ws.remote_address)
+        obs.emit("link.connect", "connection arrived", pending=len(self._pending))
         dispatcher = None
         activated = False
         while len(self._pending) >= MAX_PENDING_HANDSHAKES:
             old_id, old_link = self._pending.popitem(last=False)
             slog.warning("evicting the oldest pending handshake %s (%d pending)", old_id, MAX_PENDING_HANDSHAKES)
+            obs.emit("link.evicted", "evicted the oldest pending handshake", evicted=old_id,
+                     limit=MAX_PENDING_HANDSHAKES)
             old_link.abort("evicted: too many pending handshakes")
         self._pending[session_id] = link
         ws.protocol.max_message_size = PRE_AUTH_MAX_BYTES
@@ -195,11 +214,12 @@ class BrainServer:
             self._notify(self.on_connect, link)
             for old_id, old_link in old:
                 slog.info("replacing the previous body connection %s", old_id)
+                obs.emit("link.replaced", "a newer body connection replaced the active one", replaced=old_id)
                 await old_link.close(p.CLOSE_REPLACED, "replaced by a newer body connection")
             link.start_background()
             # Unbounded as a Queue, bounded by `budget` (HANDLER_QUEUE messages and handler_queue_max_bytes).
             queue: asyncio.Queue[tuple[Received, int]] = asyncio.Queue()
-            dispatcher = asyncio.create_task(self._dispatch_loop(link, queue, budget))
+            dispatcher = watch_task(asyncio.create_task(self._dispatch_loop(link, queue, budget)), "link.dispatcher")
             while True:
                 try:
                     r = await link.recv()
@@ -224,6 +244,8 @@ class BrainServer:
                 if budget.reserve(size):
                     queue.put_nowait((r, size))
                 else:
+                    obs.emit("queue.busy", "handler queue full; the body was told busy", messages=budget.messages,
+                             bytes_waiting=budget.bytes, type=r.type)
                     await link.refuse(p.ProtocolError(
                         "busy", f"brain handler queue full ({budget.messages} messages, {budget.bytes} bytes); "
                                 "message dropped", reply_to=r.msg["id"]), peer_fault=False)
@@ -245,6 +267,12 @@ class BrainServer:
                       f" ({link.closed_reason})" if link.closed_reason else "", st.rx_messages, st.tx_messages,
                       st.id_gaps, st.echo_answered, st.echo_crc_errors, st.refused, dict(guard.limited),
                       log_limit.suppressed_total, budget.peak_bytes, extra=EXEMPT)
+            obs.emit("link.down", "connection ended" + (" (it was the active body)" if activated else ""),
+                     active=activated, authenticated=link.authenticated, reason=link.closed_reason)
+            obs.emit("link.session_summary", "session counters", rx=st.rx_messages, tx=st.tx_messages,
+                     id_gaps=st.id_gaps, echo_answered=st.echo_answered, echo_crc_errors=st.echo_crc_errors,
+                     refused=dict(st.refused), rate_limited=dict(guard.limited),
+                     log_lines_suppressed=log_limit.suppressed_total, handler_queue_peak_bytes=budget.peak_bytes)
             if link.authenticated:
                 slog.info(link.clock_summary(), extra=EXEMPT)
             slog.removeFilter(log_limit)
@@ -256,17 +284,23 @@ class BrainServer:
                 link.log.warning("closing: the body kept sending over the rate limit (%d messages over it this "
                                  "minute; by type %s)", guard.excess_max_per_min + 1, dict(guard.limited),
                                  extra=EXEMPT)
+                obs.emit("flood.closed", "the body kept flooding; closing", limited=dict(guard.limited),
+                         excess_max_per_min=guard.excess_max_per_min)
                 await link.refuse(p.ProtocolError(
                     "busy", "too many messages over the rate limit for too long; closing", fatal=True,
                     reply_to=r.msg["id"]), peer_fault=False)
                 await link.close(p.CLOSE_PROTOCOL_ERROR, "flood: rate limit exceeded")
                 return "close"
+            obs.emit("flood.rate_limited", f"{r.type} over its rate; dropped", type=r.type,
+                     limited=guard.limited.get(r.type, 0))
             if r.type in ANSWERED_WHEN_LIMITED and r.msg["reply_to"] is None:
                 await link.refuse(p.ProtocolError("busy", f"too many {r.type} messages; rate limited",
                                                   reply_to=r.msg["id"]), peer_fault=False)
             return "drop"  # other types over the limit are dropped and counted (guard.limited)
         problem = size_problem(r.type, len(r.raw.encode("utf-8")), len(r.data or b""))
         if problem is not None:
+            obs.emit("flood.too_large", f"{r.type} over its size limit", type=r.type,
+                     text_bytes=len(r.raw.encode("utf-8")), data_bytes=len(r.data or b""))
             if await link.refuse(p.ProtocolError("too_large", problem, reply_to=r.msg["id"])):
                 await link.close(p.CLOSE_PROTOCOL_ERROR, "too_large")
                 return "close"
@@ -278,10 +312,13 @@ class BrainServer:
         if callback is not None:
             try:
                 callback(link)
-            except Exception:  # broad-except: a listener bug must not take the session down
+            except Exception as e:  # broad-except: a listener bug must not take the session down
                 link.log.exception("link listener failed")
+                obs.emit("supervisor.crashed", f"link listener raised {type(e).__name__}", component="link.listener",
+                         error=type(e).__name__, where=where(e))
 
     async def _fail_handshake(self, link: Link, err: p.ProtocolError) -> bool:
+        obs.emit("link.auth", f"handshake refused: {err.code}", ok=False, code=err.code, level="WARNING")
         err.fatal = True
         await link.refuse(err, peer_fault=False)
         await link.close(p.CLOSE_AUTH_FAILED if err.code == "unauthorized" else p.CLOSE_PROTOCOL_ERROR, err.code)
@@ -291,6 +328,8 @@ class BrainServer:
         """The body refused something (for example our proof): log it, never answer an error (section 9)."""
         pl = r.msg["payload"]
         link.log.warning("body refused the handshake: %s: %r", pl["code"], pl["message"])
+        obs.emit("link.auth", f"the body refused the handshake: {pl['code']}", ok=False, code=pl["code"],
+                 by="body", level="WARNING")
         await link.close(p.CLOSE_AUTH_FAILED if pl["code"] == "unauthorized" else p.CLOSE_PROTOCOL_ERROR, pl["code"])
         return False
 
@@ -364,6 +403,10 @@ class BrainServer:
                           hp.get("boot_id"), len(clock))
         link.clock = clock
         link.log.info("body authenticated; session %s", session_id)
+        obs.emit("link.auth", "body authenticated", ok=True, code="ok")
+        obs.emit("link.up", "a body is connected and authenticated", software=hp["software"],
+                 capabilities=list(hp["capabilities"]), commands=len(hp.get("commands", [])),
+                 same_run_clock_samples=len(clock))
         return True
 
     async def _dispatch_loop(self, link: Link, queue: asyncio.Queue[tuple[Received, int]],
@@ -376,6 +419,8 @@ class BrainServer:
                 return
             except Exception as e:  # broad-except: a handler bug must not take the session down
                 link.log.exception("handler failed on %s id=%d", r.type, r.msg["id"])
+                obs.emit("supervisor.crashed", f"message handler raised {type(e).__name__} on {r.type}",
+                         component="link.handler", error=type(e).__name__, where=where(e), type=r.type)
                 try:
                     await link.refuse(p.ProtocolError("internal", f"brain failed handling {r.type}: "
                                                       f"{type(e).__name__}", reply_to=r.msg["id"]),
@@ -398,7 +443,10 @@ class BrainServer:
             else:
                 link.log.info("event %s (data keys %s)", name, short_items(data, len(data)))
                 link.log.debug("event %s data %s", name, short_repr(data, 500))
+            obs.emit("body.event", "body event", name=name, data_keys=len(data))
         elif r.type == "ack":
             link.log.info("ack for %s", msg["reply_to"])
+            obs.emit("link.unconsumed", "an ack nothing waits for", type="ack", reply_to=msg["reply_to"])
         else:
             link.log.debug("%s id=%d (no handler)", r.type, msg["id"])
+            obs.emit("link.unconsumed", f"{r.type}: nothing in the brain consumes it yet", type=r.type)

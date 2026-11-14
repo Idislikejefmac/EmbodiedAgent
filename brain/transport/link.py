@@ -14,9 +14,11 @@ from typing import Any
 
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 
+from .. import obs
 from ..limits import (BINARY_PAIR_TIMEOUT_S, CLOSE_REASON_MAX_CHARS, CLOSE_TIMEOUT_S, MAX_PEER_ERRORS_PER_MIN,
                       REQUEST_TIMEOUT_S, SEND_TIMEOUT_S)
 from ..limits import RECENT_IDS_KEPT as RECENT_IDS_KEPT  # re-exported (H-11)
+from ..obs.supervisor import watch_task
 from . import protocol as p
 from .clock import ClockOffsetEstimator
 
@@ -173,6 +175,8 @@ class Link:
                                       f"last: {err.message}", fatal=True, reply_to=err.reply_to)
         self.log.warning("refused: %s (reply_to=%s, fatal=%s%s): %r", err.code, err.reply_to, fatal,
                          ", not answered" if err.silent else "", err.message)
+        obs.emit("link.refused", f"refused: {err.code}", code=err.code, fatal=fatal, peer_fault=peer_fault,
+                 answered=not err.silent, reply_to=err.reply_to, role=self.role)
         if not err.silent:
             self.stats.errors_sent += 1
             try:
@@ -248,6 +252,8 @@ class Link:
             pl = msg["payload"]
             self.log.warning("peer error %s (reply_to=%s, fatal=%s): %r", pl["code"], reply_to,
                              pl["fatal"], pl["message"])
+            obs.emit("link.peer_error", "the peer sent an error", code=pl["code"], fatal=pl["fatal"],
+                     reply_to=reply_to, role=self.role)
         pending = self._requests.get(reply_to) if reply_to is not None else None
         if pending is not None and (mtype == "error" or mtype in pending[1]):
             fut = self._requests.pop(reply_to)[0]
@@ -268,6 +274,8 @@ class Link:
                     if self.clock.resets != resets:
                         self.log.warning("clock: new sample (%.3f ms +/- %.1f) is inconsistent with the estimate; "
                                          "dropped the older samples", s.offset_us / 1000, s.rtt_us / 2000)
+                        obs.emit("clock.reset", "clock sample inconsistent; estimate restarted",
+                                 sample_ms=round(s.offset_us / 1000, 3), resets=self.clock.resets)
                     self._clock_samples += 1
                     level = logging.INFO if self._clock_samples % CLOCK_INFO_EVERY == 1 else logging.DEBUG
                     drift = self.clock.drift_fit_ppm
@@ -277,6 +285,11 @@ class Link:
                                      "drift_ppm=%s (%s minus %s)", estimate / 1000, best.rtt_us / 1000,
                                      s.rtt_us / 1000, s.offset_us / 1000,
                                      "none" if drift is None else f"{drift:.1f}", self.peer, self.role)
+                        if level == logging.INFO:
+                            obs.emit("clock.estimate", "clock offset estimate", offset_ms=round(estimate / 1000, 3),
+                                     best_rtt_ms=round(best.rtt_us / 1000, 2),
+                                     drift_ppm=None if drift is None else round(drift, 1),
+                                     samples=self._clock_samples)
             return True
         if mtype == "echo" and reply_to is None:
             payload = msg["payload"]
@@ -315,7 +328,8 @@ class Link:
     def start_background(self) -> None:
         """Start the heartbeat sender and the liveness watchdog (separate, so a blocked send cannot
         stop the watchdog from noticing a silent peer)."""
-        self._tasks += [asyncio.create_task(self._heartbeat_loop()), asyncio.create_task(self._watchdog())]
+        self._tasks += [watch_task(asyncio.create_task(self._heartbeat_loop()), "link.heartbeat"),
+                        watch_task(asyncio.create_task(self._watchdog()), "link.watchdog")]
 
     async def _heartbeat_loop(self) -> None:
         try:
@@ -337,6 +351,8 @@ class Link:
             await asyncio.sleep(tick)
             silent = time.monotonic() - self.last_rx
             if silent > self.liveness_s:
+                obs.emit("watchdog.fired", "no valid frame from the peer; dropping the link", silent_s=round(silent, 1),
+                         liveness_s=self.liveness_s, role=self.role)
                 self.abort(f"no valid frame for {silent:.1f} s (liveness)")
                 return
 

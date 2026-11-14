@@ -52,6 +52,7 @@ import weakref
 from dataclasses import dataclass
 from typing import Any
 
+from . import obs
 from .config import Config
 from .limits import PORT_MAX, PORT_MIN
 from .limits import RESOLVED_TTL_S as RESOLVED_TTL_S  # how long a learned address stays reachable (H-11)
@@ -173,6 +174,7 @@ _quiet = threading.local()  # set while the guard tests itself, so the test does
 def _deny(what: str) -> None:
     if not getattr(_quiet, "on", False):
         log.warning("EGRESS DENIED: %s is not allowed by the [egress] allowlist", what)
+        obs.emit("egress.denied", "outbound connection or lookup refused", what=what)
     raise EgressDenied(f"egress to {what} is not allowed by the [egress] allowlist in config.toml")
 
 
@@ -392,6 +394,9 @@ def install_guard(policy: EgressPolicy) -> None:
     removed = strip_proxy_environment()
     _activate(policy)
     failures = self_test()
+    obs.emit("startup.self_test", "egress guard self-test " + ("failed" if failures else "passed"), test="egress_guard",
+             ok=not failures, failures=failures, destinations=len(policy.allowed),
+             level="ERROR" if failures else "INFO")
     if failures:
         raise RuntimeError("the egress guard failed its self-test: " + "; ".join(failures))
     log.info("egress guard on: %s%s%s", ", ".join(f"{h}:{p}" for h, p in sorted(policy.allowed)) or "no destinations",

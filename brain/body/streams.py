@@ -20,11 +20,14 @@ from collections import deque
 from collections.abc import Callable, Coroutine
 from typing import Any, Protocol
 
+from .. import obs
 from ..limits import AUDIO_QUEUE as AUDIO_QUEUE  # re-exported: the queue bounds live in brain/limits.py (H-11)
 from ..limits import EVENT_QUEUE as EVENT_QUEUE
 from ..limits import POSE_QUEUE as POSE_QUEUE
+from ..obs.supervisor import run_with_restarts
 
 log = logging.getLogger("brain.body.streams")
+_DROP_REPORTED_AT = (1, 10, 100, 1000, 10_000, 100_000)  # a queue.drop event at these drop counts only
 
 
 class BodyStream[T](Protocol):
@@ -49,7 +52,10 @@ class BodyStream[T](Protocol):
 class Subscription[T]:
     """One consumer's view of a Fanout."""
 
-    def __init__(self, maxsize: int, on_close: Callable[[Subscription[T]], None] | None = None):
+    def __init__(self, maxsize: int, on_close: Callable[[Subscription[T]], None] | None = None, *,
+                 name: str = "stream"):
+        self.name = name
+        self._reported_drops = 0
         if isinstance(maxsize, bool) or not isinstance(maxsize, int):
             raise TypeError(f"a stream queue size must be a whole number, not {type(maxsize).__name__}")
         if maxsize < 1:
@@ -67,6 +73,10 @@ class Subscription[T]:
         if len(self._items) >= self._maxsize:
             self._items.popleft()
             self.dropped += 1
+            if self.dropped in _DROP_REPORTED_AT:
+                obs.emit("queue.drop", f"{self.name}: a slow consumer lost its oldest items", stream=self.name,
+                         dropped=self.dropped, new_drops=self.dropped - self._reported_drops, bound=self._maxsize)
+                self._reported_drops = self.dropped
         self._items.append(item)
         self._wake.set()
 
@@ -103,25 +113,34 @@ class Subscription[T]:
 
 
 def spawn_stream[T](maxsize: int, produce: Callable[[Subscription[T]], Coroutine[Any, Any, None]],
-                    tasks: set[asyncio.Task[None]] | None = None) -> Subscription[T]:
+                    tasks: set[asyncio.Task[None]] | None = None, *, name: str = "stream") -> Subscription[T]:
     """A stream fed by its own producer task. `produce(stream)` pushes items until it returns (the
     stream then ends) or the consumer closes the stream (the task is cancelled). Must be called with
     an event loop running. `tasks`, if given, holds the task while it runs so the body can cancel
-    every producer when it closes."""
+    every producer when it closes.
+
+    The producer is supervised (brain/obs/supervisor.py): if it raises, the failure is reported and it
+    is restarted with a bounded backoff (the consumer sees a gap, not an end); after too many failures in
+    the window the stream ends and the failure is reported."""
     task: asyncio.Task[None] | None = None
 
     def on_close(_: Subscription[T]) -> None:
         if task is not None:
             task.cancel()
 
-    stream: Subscription[T] = Subscription(maxsize, on_close)
+    stream: Subscription[T] = Subscription(maxsize, on_close, name=name)
 
     def finished(done: asyncio.Task[None]) -> None:
         stream._end()  # also when the task was cancelled before it ever ran
+        obs.emit("body.stream", f"{name} stream closed", stream=name, open=False, dropped=stream.dropped)
         if not done.cancelled() and done.exception() is not None:
             log.error("a stream producer failed: %r", done.exception())
 
-    task = asyncio.create_task(produce(stream))
+    async def supervised() -> None:
+        await run_with_restarts(f"stream:{name}", lambda: produce(stream), quiet=True)
+
+    obs.emit("body.stream", f"{name} stream opened", stream=name, open=True, bound=maxsize)
+    task = asyncio.create_task(supervised())
     task.add_done_callback(finished)
     if tasks is not None:
         tasks.add(task)
@@ -133,7 +152,8 @@ class Fanout[T]:
     """Publishes each item to every current subscriber. Items published before a subscription began
     are not replayed to it."""
 
-    def __init__(self) -> None:
+    def __init__(self, name: str = "events") -> None:
+        self.name = name
         self._subs: list[Subscription[T]] = []
         self._closed = False
 
@@ -141,7 +161,7 @@ class Fanout[T]:
         return len(self._subs)
 
     def subscribe(self, maxsize: int = EVENT_QUEUE) -> Subscription[T]:
-        sub: Subscription[T] = Subscription(maxsize, self._remove)
+        sub: Subscription[T] = Subscription(maxsize, self._remove, name=self.name)
         if self._closed:
             sub._end()
         else:

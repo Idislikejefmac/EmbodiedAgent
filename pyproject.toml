@@ -37,8 +37,8 @@ markers = [
 # Run with:  python -m mypy   (checks the packages below in strict mode; tests/test_typing.py runs it too)
 python_version = "3.13"
 strict = true
-files = ["brain/body", "brain/agent", "brain/config.py", "brain/egress.py", "brain/limits.py", "brain/logsafe.py",
-         "brain/transport", "brain/__main__.py", "tools/chaos", "tools/migrate.py"]
+files = ["brain/body", "brain/agent", "brain/obs", "brain/config.py", "brain/egress.py", "brain/limits.py", "brain/logsafe.py",
+         "brain/transport", "brain/__main__.py", "tools/chaos", "tools/migrate.py", "tools/lint.py"]
 explicit_package_bases = true  # tools/ has no __init__.py
 follow_imports = "silent"  # tools/trace.py is imported but not yet checked (H-13 list below)
 

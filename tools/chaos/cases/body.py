@@ -79,7 +79,7 @@ def gen_hostile(g: Gen) -> list[Case]:
 def gen_failure(g: Gen) -> list[Case]:
     return [
         failure("concurrent_calls_then_close", {"start": True, "concurrent": True, "ops": _sequence(g, g.n(20, 100))
-                                                + [("close", None)]}, "N10"),
+                                                + [("close", None)]}, "N10", max_log_lines=1000),
         failure("link_drop_mid_sequence", {"start": True, "ops": _sequence(g, 3) + [("link_down", None)]
                                            + _sequence(g, 5) + [("link_up", None), ("status", None)]}, "N14"),
         failure("slow_pose_consumer", {"start": True, "ops": [("slow_consumer", 1.0)]}, "N11"),

@@ -36,6 +36,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 
+from .. import obs
 from ..limits import CAPTURE_MAX_EDGE_PX_MAX, CAPTURE_MAX_EDGE_PX_MIN, POSE_RATE_MAX_HZ
 from .streams import BodyStream
 from .types import (AudioChunk, BodyEvent, BodyStatus, Capability, ClockSync, Image, NavGoal, Pose)
@@ -51,21 +52,31 @@ def check_real(name: str, value: object, *, low: float | None = None, high: floa
     """`value` as a float if it is a finite int or float (a bool is not a number here: TypeError), within the
     optional range (ValueError). The message names the parameter and never echoes the value."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _invalid(name, "wrong type", type(value).__name__)
         raise TypeError(f"{name} must be a number, not {type(value).__name__}")
     if not math.isfinite(value):
+        _invalid(name, "not finite")
         raise ValueError(f"{name} must be finite")
     if low is not None and (value <= low if low_open else value < low):
+        _invalid(name, "below the minimum")
         raise ValueError(f"{name} must be {'above' if low_open else 'at least'} {low:g}")
     if high is not None and value > high:
+        _invalid(name, "above the maximum")
         raise ValueError(f"{name} must be at most {high:g}")
     return float(value)
+
+
+def _invalid(name: str, problem: str, kind: str | None = None) -> None:
+    obs.emit("validation.failed", f"{name}: {problem}", parameter=name, problem=problem, kind=kind)
 
 
 def check_whole(name: str, value: object, *, low: int = 1) -> int:
     """`value` if it is an int (not a bool) of at least `low`; TypeError or ValueError otherwise."""
     if isinstance(value, bool) or not isinstance(value, int):
+        _invalid(name, "wrong type", type(value).__name__)
         raise TypeError(f"{name} must be a whole number, not {type(value).__name__}")
     if value < low:
+        _invalid(name, "below the minimum")
         raise ValueError(f"{name} must be at least {low}")
     return value
 
@@ -178,7 +189,10 @@ class Body(ABC):
     def _refuse(self, capability: Capability) -> NotSupported:
         """The error for a gated method this body does not implement. If the body nevertheless lists
         the capability, that is an adapter bug and the message says so."""
-        if capability in self.capabilities:
+        listed = capability in self.capabilities
+        obs.emit("body.not_supported", f"{capability.value} refused", capability=capability.value,
+                 adapter_bug=listed)
+        if listed:
             return NotSupported(capability, f"this body lists '{capability.value}' but does not implement it")
         return NotSupported(capability)
 
@@ -228,6 +242,8 @@ class Body(ABC):
         text of these errors is for logs and developers; it is never shown to the agent."""
         if capability in self.capabilities:
             return
+        obs.emit("body.not_supported", f"{capability.value} refused", capability=capability.value,
+                 not_built=not_built)
         if not_built:
             raise NotYetImplemented(capability, f"'{capability.value}' is not built for this body yet ({not_built})")
         raise NotSupported(capability)
