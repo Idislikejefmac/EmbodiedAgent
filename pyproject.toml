@@ -14,7 +14,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "mypy>=1.13"]
+# Dev only (DEC-DEV-DEPS). A hash-pinned dev lockfile is a later task (H-03); until then these are lower bounds.
+dev = ["pytest>=8", "mypy>=1.13", "hypothesis>=6.170"]
 
 [tool.setuptools.packages.find]
 include = ["brain*"]
@@ -24,12 +25,19 @@ brain = ["agent/*.json"]  # the tool allowlist ships with the code
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "chaos: part of the chaos and boundary harness (tools/chaos; card X-01)",
+    "slow: long-running (chaos --full and the like); skipped unless --run-slow",
+    "real_vendor: would contact a real vendor or the real model; never collected into a normal run (C8)",
+    "gate(name, limit=None, edge=None): an E1b edge test of a gate in tools/chaos/manifest.toml (below, at, above, wrong_type)",
+    "trace(*ids, promises=(), risks=()): the T- ids, promises and R- ids this test covers (tools/trace.py)",
+]
 
 [tool.mypy]
 # Run with:  python -m mypy   (checks the packages below in strict mode; tests/test_typing.py runs it too)
 python_version = "3.13"
 strict = true
-files = ["brain/body", "brain/agent", "brain/egress.py"]
+files = ["brain/body", "brain/agent", "brain/egress.py", "brain/limits.py"]
 follow_imports = "silent"  # brain/transport and brain/__main__ are imported but not yet checked strictly
 
 [[tool.mypy.overrides]]

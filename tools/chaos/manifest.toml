@@ -1,0 +1,594 @@
+# Entry-point manifest for the chaos and boundary harness (plan card X-01 step 1; check E8).
+#
+# Everything the system exposes, one record per entry point. `python -m brain chaos --check-manifest`
+# discovers the same set from the real code (tools/chaos/manifest.py) and fails on any difference, in
+# either direction, and on any change to a checked attribute (a tool's class, channels or sensitive
+# flag; a message's senders; a close or binary type code; an Android component's exported flag or
+# permission). So adding an entry point to the code without adding it here fails the build, and so
+# does removing one without removing it here.
+#
+# A new card: run `python -m brain chaos --manifest-stub`, paste the printed lines into `entry` below,
+# review `card` and `boundary` (B-ids: docs/testing/00 section 3), then register an experiment for them
+# in tools/chaos/cases/ (tools/chaos/README.md). Keys per entry: id, kind, card, boundary, an optional
+# note, and the checked attributes of its kind. Nothing here is executed.
+
+schema = 1
+
+entry = [
+
+  # ---- tool ----
+  { id = "tool.capture_image", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "tool.get_body_status", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "tool.get_pose", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "tool.listen", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "tool.navigate_to", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "motion", channels = ["app", "console"], sensitive = false },
+  { id = "tool.speak", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "tool.stop", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "motion", channels = ["app", "console"], sensitive = false },
+  { id = "tool.who_is_present", kind = "tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+
+  # ---- reserved_tool ----
+  { id = "reserved_tool.delete_person_data", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "staged_delete", channels = ["app", "console"], sensitive = true },
+  { id = "reserved_tool.describe_place", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "reserved_tool.list_waypoints", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "reserved_tool.recall", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "reserved_tool.remember", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "teaching", channels = ["app", "console"], sensitive = false },
+  { id = "reserved_tool.route_to", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+  { id = "reserved_tool.save_waypoint", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "teaching", channels = ["app", "console"], sensitive = false },
+  { id = "reserved_tool.set_quiet", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "motion", channels = ["app", "console"], sensitive = false },
+  { id = "reserved_tool.start_enrollment", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "teaching", channels = ["app", "console"], sensitive = true },
+  { id = "reserved_tool.where_am_i", kind = "reserved_tool", card = "P0-06", boundary = "B6", tool_class = "query", channels = ["app", "console"], sensitive = false },
+
+  # ---- tool_param ----
+  { id = "tool_param.capture_image.max_edge", kind = "tool_param", card = "P0-06", boundary = "B7" },
+  { id = "tool_param.capture_image.reason", kind = "tool_param", card = "P0-06", boundary = "B7" },
+  { id = "tool_param.listen.timeout_s", kind = "tool_param", card = "P0-06", boundary = "B7" },
+  { id = "tool_param.navigate_to.waypoint", kind = "tool_param", card = "P0-06", boundary = "B7" },
+  { id = "tool_param.speak.interrupt", kind = "tool_param", card = "P0-06", boundary = "B7" },
+  { id = "tool_param.speak.text", kind = "tool_param", card = "P0-06", boundary = "B7" },
+
+  # ---- message ----
+  { id = "message.ack", kind = "message", card = "P0-05", boundary = "B1", senders = ["body", "brain"] },
+  { id = "message.audio_in", kind = "message", card = "P0-05", boundary = "B1", senders = ["body"] },
+  { id = "message.audio_out", kind = "message", card = "P0-05", boundary = "B1", senders = ["brain"] },
+  { id = "message.auth", kind = "message", card = "P0-05", boundary = "B1", senders = ["body", "brain"] },
+  { id = "message.command", kind = "message", card = "P0-05", boundary = "B1", senders = ["brain"] },
+  { id = "message.echo", kind = "message", card = "P0-05", boundary = "B1", senders = ["body", "brain"] },
+  { id = "message.error", kind = "message", card = "P0-05", boundary = "B1", senders = ["body", "brain"] },
+  { id = "message.event", kind = "message", card = "P0-05", boundary = "B1", senders = ["body"] },
+  { id = "message.heartbeat", kind = "message", card = "P0-05", boundary = "B1", senders = ["body", "brain"] },
+  { id = "message.hello", kind = "message", card = "P0-05", boundary = "B1", senders = ["body", "brain"] },
+  { id = "message.image", kind = "message", card = "P0-05", boundary = "B1", senders = ["body"] },
+  { id = "message.pose", kind = "message", card = "P0-05", boundary = "B1", senders = ["body"] },
+  { id = "message.speak_local", kind = "message", card = "P0-05", boundary = "B1", senders = ["brain"] },
+  { id = "message.tracking_state", kind = "message", card = "P0-05", boundary = "B1", senders = ["body"] },
+
+  # ---- field ----
+  { id = "field.ack.result", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.ack.status", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_in.byte_length", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_in.channels", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_in.encoding", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_in.sample_rate", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_in.seq", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_in.stream_id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_out.byte_length", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_out.channels", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_out.encoding", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_out.final", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_out.sample_rate", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_out.seq", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.audio_out.utterance_id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.auth.mac", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.command.args", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.command.name", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.echo.byte_length", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.echo.crc32", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.echo.seq", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.echo.text", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.envelope.id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.envelope.payload", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.envelope.reply_to", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.envelope.ts_body", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.envelope.ts_brain", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.envelope.type", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.envelope.v", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.error.code", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.error.fatal", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.error.message", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.event.data", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.event.name", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.heartbeat.offset_us", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.heartbeat.rtt_us", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.auth", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.auth.nonce", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.boot_id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.capabilities", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.commands", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.heartbeat_ms", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.liveness_timeout_ms", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.max_binary_bytes", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.role", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.session_id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.software", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.versions", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.hello.wall_time_utc", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.byte_length", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.encoding", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.height", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.pose", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.pose.frame_id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.pose.orientation_xyzw", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.pose.position_m", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.image.width", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.pose.frame_id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.pose.orientation_xyzw", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.pose.position_m", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.pose.tracking", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.speak_local.interrupt", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.speak_local.text", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.speak_local.utterance_id", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.tracking_state.reason", kind = "field", card = "P0-05", boundary = "B1" },
+  { id = "field.tracking_state.state", kind = "field", card = "P0-05", boundary = "B1" },
+
+  # ---- command ----
+  { id = "command.capture_image", kind = "command", card = "P0-05", boundary = "B1" },
+  { id = "command.get_status", kind = "command", card = "P0-05", boundary = "B1" },
+  { id = "command.set_pose_rate", kind = "command", card = "P0-05", boundary = "B1" },
+  { id = "command.start_audio_in", kind = "command", card = "P0-05", boundary = "B1" },
+  { id = "command.stop_audio_in", kind = "command", card = "P0-05", boundary = "B1" },
+  { id = "command.stop_audio_out", kind = "command", card = "P0-05", boundary = "B1" },
+
+  # ---- command_arg ----
+  { id = "command_arg.capture_image.max_edge", kind = "command_arg", card = "P0-05", boundary = "B1" },
+  { id = "command_arg.set_pose_rate.hz", kind = "command_arg", card = "P0-05", boundary = "B1" },
+
+  # ---- error_code ----
+  { id = "error_code.bad_args", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.bad_binary", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.bad_envelope", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.bad_json", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.bad_payload", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.bad_sequence", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.busy", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.internal", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.not_implemented", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.too_large", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.unauthorized", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.unknown_command", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.unknown_type", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.unsupported_version", kind = "error_code", card = "P0-05", boundary = "B1" },
+  { id = "error_code.wrong_direction", kind = "error_code", card = "P0-05", boundary = "B1" },
+
+  # ---- close_code ----
+  { id = "close_code.auth_failed", kind = "close_code", card = "P0-05", boundary = "B1", code = 1008 },
+  { id = "close_code.going_away", kind = "close_code", card = "P0-05", boundary = "B1", code = 1001 },
+  { id = "close_code.normal", kind = "close_code", card = "P0-05", boundary = "B1", code = 1000 },
+  { id = "close_code.protocol_error", kind = "close_code", card = "P0-05", boundary = "B1", code = 1002 },
+  { id = "close_code.replaced", kind = "close_code", card = "P0-05", boundary = "B1", code = 4001 },
+
+  # ---- binary_type ----
+  { id = "binary_type.audio_in", kind = "binary_type", card = "P0-05", boundary = "B2", code = 2 },
+  { id = "binary_type.audio_out", kind = "binary_type", card = "P0-05", boundary = "B2", code = 3 },
+  { id = "binary_type.echo", kind = "binary_type", card = "P0-05", boundary = "B2", code = 4 },
+  { id = "binary_type.image", kind = "binary_type", card = "P0-05", boundary = "B2", code = 1 },
+
+  # ---- ws_option ----
+  { id = "ws_option.client.compression", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.client.max_queue", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.client.max_size", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.client.ping_interval", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.server.compression", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.server.max_queue", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.server.max_size", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.server.origins", kind = "ws_option", card = "P0-05", boundary = "B1" },
+  { id = "ws_option.server.ping_interval", kind = "ws_option", card = "P0-05", boundary = "B1" },
+
+  # ---- body_method ----
+  { id = "body_method.audio_in_stream", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.capabilities", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.capture_image", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.clock_sync", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.close", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.connected", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.events", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.name", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.navigate", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.play_audio", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.pose_stream", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.require", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.speak_text", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.start", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.status", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.stop", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.supports", kind = "body_method", card = "P0-06", boundary = "B3" },
+  { id = "body_method.wait_connected", kind = "body_method", card = "P0-06", boundary = "B3" },
+
+  # ---- body_impl ----
+  { id = "body_impl.LinkBody", kind = "body_impl", card = "P0-06", boundary = "B3" },
+  { id = "body_impl.PhoneBody", kind = "body_impl", card = "P0-06", boundary = "B3" },
+  { id = "body_impl.ReplayBody", kind = "body_impl", card = "P0-06", boundary = "B3" },
+  { id = "body_impl.SimBody", kind = "body_impl", card = "P0-06", boundary = "B3" },
+
+  # ---- body_impl_method ----
+  { id = "body_impl_method.LinkBody.port", kind = "body_impl_method", card = "P0-06", boundary = "B3" },
+  { id = "body_impl_method.SimBody.frame_id", kind = "body_impl_method", card = "P0-06", boundary = "B3" },
+  { id = "body_impl_method.SimBody.inject_event", kind = "body_impl_method", card = "P0-06", boundary = "B3" },
+  { id = "body_impl_method.SimBody.pose_now", kind = "body_impl_method", card = "P0-06", boundary = "B3" },
+  { id = "body_impl_method.SimBody.reset_frame", kind = "body_impl_method", card = "P0-06", boundary = "B3" },
+  { id = "body_impl_method.SimBody.set_link", kind = "body_impl_method", card = "P0-06", boundary = "B3" },
+  { id = "body_impl_method.SimBody.set_tracking", kind = "body_impl_method", card = "P0-06", boundary = "B3" },
+
+  # ---- capability ----
+  { id = "capability.audio_in", kind = "capability", card = "P0-06", boundary = "B3" },
+  { id = "capability.audio_out", kind = "capability", card = "P0-06", boundary = "B3" },
+  { id = "capability.image", kind = "capability", card = "P0-06", boundary = "B3" },
+  { id = "capability.navigate", kind = "capability", card = "P0-06", boundary = "B3" },
+  { id = "capability.pose", kind = "capability", card = "P0-06", boundary = "B3" },
+  { id = "capability.speak_text", kind = "capability", card = "P0-06", boundary = "B3" },
+
+  # ---- body_kind ----
+  { id = "body_kind.phone", kind = "body_kind", card = "P0-06", boundary = "B10" },
+  { id = "body_kind.sim", kind = "body_kind", card = "P0-06", boundary = "B10" },
+
+  # ---- cli_command ----
+  { id = "cli_command.brain.body-check", kind = "cli_command", card = "P0-06", boundary = "B11" },
+  { id = "cli_command.brain.chaos", kind = "cli_command", card = "X-01", boundary = "B11" },
+  { id = "cli_command.brain.info", kind = "cli_command", card = "P0-04", boundary = "B11" },
+  { id = "cli_command.brain.pair", kind = "cli_command", card = "P0-05", boundary = "B11" },
+  { id = "cli_command.brain.probe", kind = "cli_command", card = "P0-05", boundary = "B11" },
+  { id = "cli_command.brain.serve", kind = "cli_command", card = "P0-05", boundary = "B11" },
+  { id = "cli_command.migrate.export", kind = "cli_command", card = "P0-04", boundary = "B11" },
+  { id = "cli_command.migrate.restore", kind = "cli_command", card = "P0-04", boundary = "B11" },
+
+  # ---- cli_arg ----
+  { id = "cli_arg.brain.body-check.--body", kind = "cli_arg", card = "P0-06", boundary = "B11" },
+  { id = "cli_arg.brain.body-check.--wait", kind = "cli_arg", card = "P0-06", boundary = "B11" },
+  { id = "cli_arg.brain.pair.--rotate", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.probe.--bytes", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.probe.--count", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.probe.--host", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.probe.--port", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.serve.--allow-remote", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.serve.--host", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.serve.--no-phone-link", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.serve.--port", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.brain.serve.--verbose", kind = "cli_arg", card = "P0-05", boundary = "B11" },
+  { id = "cli_arg.chaos.--allow-real-data", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--allow-real-phone", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--check-manifest", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--full", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--list", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--manifest-stub", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--no-results", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--only", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--plant", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--quick", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--results-dir", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--scan-logs", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--seed", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.chaos.--strict-coverage", kind = "cli_arg", card = "X-01", boundary = "B11" },
+  { id = "cli_arg.migrate.export.--force", kind = "cli_arg", card = "P0-04", boundary = "B11" },
+  { id = "cli_arg.migrate.export.--root", kind = "cli_arg", card = "P0-04", boundary = "B11" },
+  { id = "cli_arg.migrate.export.out", kind = "cli_arg", card = "P0-04", boundary = "B11" },
+  { id = "cli_arg.migrate.restore.--dest", kind = "cli_arg", card = "P0-04", boundary = "B11" },
+  { id = "cli_arg.migrate.restore.archive", kind = "cli_arg", card = "P0-04", boundary = "B11" },
+
+  # ---- config_key ----
+  { id = "config_key.body", kind = "config_key", card = "P0-06", boundary = "B10" },
+  { id = "config_key.body.kind", kind = "config_key", card = "P0-06", boundary = "B10" },
+  { id = "config_key.body.sim", kind = "config_key", card = "P0-06", boundary = "B10" },
+  { id = "config_key.body.sim.audio_dir", kind = "config_key", card = "P0-06", boundary = "B10" },
+  { id = "config_key.body.sim.image_dir", kind = "config_key", card = "P0-06", boundary = "B10" },
+  { id = "config_key.caps", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.caps.daily_usd", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.caps.session_usd", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.egress", kind = "config_key", card = "P0-06", boundary = "B10" },
+  { id = "config_key.egress.allowed_hosts", kind = "config_key", card = "P0-06", boundary = "B10" },
+  { id = "config_key.models", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.models.careful_looking", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.models.live_conversation", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.models.offline", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.network", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.network.host", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.network.port", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.paths", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.paths.data_dir", kind = "config_key", card = "P0-04", boundary = "B10" },
+  { id = "config_key.paths.secrets_dir", kind = "config_key", card = "P0-04", boundary = "B10" },
+
+  # ---- env_var ----
+  { id = "env_var.ALL_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.ANTHROPIC_API_KEY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.DEEPGRAM_API_KEY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.ELEVENLABS_API_KEY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.FTP_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.HTTPS_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.HTTP_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.LOCALAPPDATA", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.NO_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.SystemRoot", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.USERDOMAIN", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.USERNAME", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.WSS_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
+  { id = "env_var.WS_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
+
+  # ---- store ----
+  { id = "store.config.toml", kind = "store", card = "P0-04", boundary = "B10" },
+  { id = "store.env", kind = "store", card = "P0-04", boundary = "B10" },
+  { id = "store.link_token", kind = "store", card = "P0-04", boundary = "B10" },
+  { id = "store.migration_archive", kind = "store", card = "P0-04", boundary = "B10" },
+  { id = "store.tools.v0.json", kind = "store", card = "P0-04", boundary = "B10" },
+  { id = "store.v0.schema.json", kind = "store", card = "P0-04", boundary = "B10" },
+
+  # ---- file_site ----
+  { id = "file_site.brain/__main__.py:info", kind = "file_site", card = "P0-04", boundary = "B10" },
+  { id = "file_site.brain/__main__.py:setup_logging", kind = "file_site", card = "P0-04", boundary = "B10" },
+  { id = "file_site.brain/agent/tools.py:load_catalogue", kind = "file_site", card = "P0-06", boundary = "B10" },
+  { id = "file_site.brain/body/sim.py:SimBody.start", kind = "file_site", card = "P0-06", boundary = "B10" },
+  { id = "file_site.brain/body/sim_assets.py:read_wav", kind = "file_site", card = "P0-06", boundary = "B10" },
+  { id = "file_site.brain/body/sim_assets.py:wav_bytes", kind = "file_site", card = "P0-06", boundary = "B10" },
+  { id = "file_site.brain/body/sim_assets.py:write_default_media", kind = "file_site", card = "P0-06", boundary = "B10" },
+  { id = "file_site.brain/config.py:load_config", kind = "file_site", card = "P0-04", boundary = "B10" },
+  { id = "file_site.brain/config.py:parse_env_file", kind = "file_site", card = "P0-04", boundary = "B10" },
+  { id = "file_site.brain/transport/auth.py:_read_checked", kind = "file_site", card = "P0-05", boundary = "B10" },
+  { id = "file_site.brain/transport/auth.py:_restrict_dir", kind = "file_site", card = "P0-05", boundary = "B10" },
+  { id = "file_site.brain/transport/auth.py:ensure_store", kind = "file_site", card = "P0-05", boundary = "B10" },
+  { id = "file_site.brain/transport/auth.py:load_or_create_token", kind = "file_site", card = "P0-05", boundary = "B10" },
+  { id = "file_site.brain/transport/protocol.py:schema", kind = "file_site", card = "P0-05", boundary = "B10" },
+  { id = "file_site.tools/migrate.py:build_archive", kind = "file_site", card = "P0-04", boundary = "B10" },
+  { id = "file_site.tools/migrate.py:export_data", kind = "file_site", card = "P0-04", boundary = "B10" },
+  { id = "file_site.tools/migrate.py:restore_data", kind = "file_site", card = "P0-04", boundary = "B10" },
+
+  # ---- net_module ----
+  { id = "net_module.brain/body/link.py:websockets", kind = "net_module", card = "P0-06", boundary = "B13" },
+  { id = "net_module.brain/body/phone.py:subprocess", kind = "net_module", card = "P0-06", boundary = "B13" },
+  { id = "net_module.brain/egress.py:socket", kind = "net_module", card = "P0-06", boundary = "B13" },
+  { id = "net_module.brain/transport/auth.py:ctypes", kind = "net_module", card = "P0-05", boundary = "B13" },
+  { id = "net_module.brain/transport/auth.py:subprocess", kind = "net_module", card = "P0-05", boundary = "B13" },
+  { id = "net_module.brain/transport/client.py:websockets", kind = "net_module", card = "P0-05", boundary = "B13" },
+  { id = "net_module.brain/transport/link.py:websockets", kind = "net_module", card = "P0-05", boundary = "B13" },
+  { id = "net_module.brain/transport/server.py:websockets", kind = "net_module", card = "P0-05", boundary = "B13" },
+
+  # ---- egress_host ----
+  { id = "egress_host.api.anthropic.com:443", kind = "egress_host", card = "P0-06", boundary = "B13" },
+
+  # ---- android_component ----
+  { id = "android_component.debug.receiver.DebugCommandReceiver", kind = "android_component", card = "P0-05", boundary = "B12", exported = "true", permission = "android.permission.DUMP" },
+  { id = "android_component.main.activity.ArCheckActivity", kind = "android_component", card = "P0-05", boundary = "B12", exported = "false", permission = "" },
+  { id = "android_component.main.activity.MainActivity", kind = "android_component", card = "P0-05", boundary = "B12", exported = "true", permission = "" },
+  { id = "android_component.main.service.LinkService", kind = "android_component", card = "P0-05", boundary = "B12", exported = "false", permission = "" },
+
+  # ---- android_action ----
+  { id = "android_action.LinkService.CONNECT", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.LinkService.STOP", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.debug.CONNECT", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.debug.ECHO", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.debug.PAIR", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.debug.RECONNECT", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.debug.STOP", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.debug.UNPAIR", kind = "android_action", card = "P0-05", boundary = "B12" },
+]
+
+# ---- gate functions (docs/testing/00 section 4.4: E1a and E1b read this table) ---------------------------
+# name: dotted path that must import; boundary: B-id; produces: what it returns; limits: names from
+# [limits] below (Appendix A names). E1b (planned) requires below/at/above tests for each limit.
+
+[[gate]]
+name = "brain.transport.protocol.decode"
+boundary = "B1"
+produces = "a JSON value (NaN and Infinity refused)"
+limits = ["JSON_MAX_DEPTH"]
+card = "P0-05"
+
+[[gate]]
+name = "brain.transport.protocol.validate"
+boundary = "B1"
+produces = "dict (a v0 message that passed the schema, direction and timestamp rules)"
+limits = ["MAX_ID", "MAX_TS", "IDENTIFIER_MAX_CHARS", "NAME_MAX_CHARS", "HELLO_SOFTWARE_MAX_CHARS",
+          "HELLO_NAMES_MAX", "ERROR_MESSAGE_MAX_CHARS", "ECHO_TEXT_MAX_CHARS", "SPOKEN_TEXT_MAX_CHARS",
+          "MAX_BINARY_BYTES", "POSE_RATE_MAX_HZ", "CAPTURE_MAX_EDGE_PX_MIN", "CAPTURE_MAX_EDGE_PX_MAX"]
+card = "P0-05"
+
+[[gate]]
+name = "brain.transport.protocol.unpack_binary"
+boundary = "B2"
+produces = "BinaryFrame"
+limits = ["MAX_BINARY_BYTES", "MAX_TS"]
+card = "P0-05"
+
+[[gate]]
+name = "brain.transport.protocol.check_pair"
+boundary = "B2"
+produces = "None (raises ProtocolError when the binary frame does not match its message)"
+limits = []
+card = "P0-05"
+
+[[gate]]
+name = "brain.transport.link.Link.recv"
+boundary = "B1"
+produces = "Received"
+limits = ["MAX_TEXT_BYTES", "MAX_PEER_ERRORS_PER_MIN", "BINARY_PAIR_TIMEOUT_S", "PRE_AUTH_MAX_BYTES"]
+card = "P0-05"
+
+[[gate]]
+name = "brain.transport.auth.parse_token"
+boundary = "B10"
+produces = "bytes (a 32-byte token)"
+limits = ["TOKEN_BYTES"]
+card = "P0-05"
+
+[[gate]]
+name = "brain.transport.auth.load_or_create_token"
+boundary = "B10"
+produces = "bytes (a 32-byte token from a store private to the user)"
+limits = ["TOKEN_BYTES", "ACL_TOOL_TIMEOUT_S"]
+card = "P0-05"
+
+[[gate]]
+name = "brain.agent.tools.Catalogue.from_json"
+boundary = "B10"
+produces = "Catalogue"
+limits = ["TOOL_TIMEOUT_MAX_S", "TOOL_NAME_MAX_CHARS"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.agent.tools._plain_json_problem"
+boundary = "B7"
+produces = "str | None (why the arguments are not plain JSON of modest size)"
+limits = ["MAX_ARGS_BYTES", "MAX_ARGS_DEPTH", "MAX_ARGS_NODES"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.agent.tools.ToolRegistry.call"
+boundary = "B6"
+produces = "ToolResult"
+limits = ["MAX_ARGS_BYTES", "MAX_ARGS_DEPTH", "MAX_ARGS_NODES", "MAX_KEYS_SHOWN", "LOG_KEY_MAX_CHARS",
+          "TOOL_NAME_MAX_CHARS", "TOOL_DEFAULT_TIMEOUT_S", "ABANDONED_TASKS_PER_TOOL_MAX"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.agent.tools.Caller"
+boundary = "B20"
+produces = "Caller"
+limits = ["IDENTIFIER_MAX_CHARS"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.body.types.Pose"
+boundary = "B3"
+produces = "Pose"
+limits = ["QUAT_NORM_TOL", "IDENTIFIER_MAX_CHARS"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.body.types.NavGoal"
+boundary = "B3"
+produces = "NavGoal"
+limits = ["IDENTIFIER_MAX_CHARS"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.body.types.Image"
+boundary = "B2"
+produces = "Image"
+limits = ["IDENTIFIER_MAX_CHARS", "MAX_BINARY_BYTES"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.body.types.AudioChunk"
+boundary = "B2"
+produces = "AudioChunk"
+limits = []
+card = "P0-06"
+
+[[gate]]
+name = "brain.body.types.BodyEvent"
+boundary = "B3"
+produces = "BodyEvent"
+limits = ["NAME_MAX_CHARS"]
+card = "P0-06"
+
+[[gate]]
+name = "brain.body.types.BodyStatus"
+boundary = "B3"
+produces = "BodyStatus"
+limits = []
+card = "P0-06"
+
+[[gate]]
+name = "brain.config.load_config"
+boundary = "B10"
+produces = "dict (no schema yet: H-05)"
+limits = ["CONFIG_MAX_BYTES"]
+card = "P0-04"
+
+[[gate]]
+name = "brain.config.parse_env_file"
+boundary = "B10"
+produces = "dict[str, str]"
+limits = ["ENV_FILE_MAX_BYTES"]
+card = "P0-04"
+
+[[gate]]
+name = "brain.egress.EgressPolicy.from_hosts"
+boundary = "B10"
+produces = "EgressPolicy"
+limits = []
+card = "P0-06"
+
+[[gate]]
+name = "brain.egress.EgressPolicy.from_config"
+boundary = "B10"
+produces = "EgressPolicy"
+limits = []
+card = "P0-06"
+
+[[gate]]
+name = "tools.migrate.restore_data"
+boundary = "B10"
+produces = "list[str] (names restored)"
+limits = ["SCRYPT_LOG_N", "PASSPHRASE_MIN_CHARS", "ARCHIVE_MAX_BYTES", "ARCHIVE_UNPACKED_MAX_BYTES"]
+card = "P0-04"
+
+[[gate]]
+name = "tools.chaos.manifest.load_manifest"
+boundary = "B10"
+produces = "Manifest"
+limits = ["MANIFEST_MAX_BYTES"]
+card = "X-01"
+
+# ---- limits: Appendix A name -> where it lives today -----------------------------------------------------
+# "module:ATTR" must import and be a number (checked); "spec:", "literal:" and "provisional" are text.
+# When H-11 moves a constant into brain/limits.py, change its home here in the same commit.
+
+[limits]
+MAX_TEXT_BYTES = "brain.transport.protocol:MAX_TEXT_BYTES"
+MAX_BINARY_BYTES = "brain.transport.protocol:MAX_BINARY_BYTES"
+MAX_ID = "brain.transport.protocol:MAX_ID"
+MAX_TS = "brain.transport.protocol:MAX_TS"
+HEARTBEAT_MS = "brain.transport.protocol:HEARTBEAT_MS"
+LIVENESS_TIMEOUT_MS = "brain.transport.protocol:LIVENESS_TIMEOUT_MS"
+PRE_AUTH_MAX_BYTES = "brain.transport.server:PRE_AUTH_MAX_BYTES"
+MAX_PENDING_HANDSHAKES = "brain.transport.server:MAX_PENDING_HANDSHAKES"
+FIRST_FRAME_TIMEOUT_S = "brain.transport.server:FIRST_FRAME_TIMEOUT_S"
+HANDLER_QUEUE = "brain.transport.server:HANDLER_QUEUE"
+TOKEN_BYTES = "brain.transport.auth:TOKEN_BYTES"
+NONCE_BYTES = "brain.transport.auth:NONCE_BYTES"
+MAX_ARGS_BYTES = "brain.agent.tools:MAX_ARGS_BYTES"
+MAX_ARGS_DEPTH = "brain.agent.tools:MAX_ARGS_DEPTH"
+MAX_ARGS_NODES = "brain.agent.tools:MAX_ARGS_NODES"
+MAX_KEYS_SHOWN = "brain.agent.tools:MAX_KEYS_SHOWN"
+TOOL_DEFAULT_TIMEOUT_S = "brain.agent.tools:DEFAULT_TIMEOUT_S"
+POSE_RATE_MAX_HZ = "brain.body.base:MAX_POSE_RATE_HZ"
+EVENT_QUEUE = "brain.body.streams:EVENT_QUEUE"
+POSE_QUEUE = "brain.body.streams:POSE_QUEUE"
+AUDIO_QUEUE = "brain.body.streams:AUDIO_QUEUE"
+POSE_WAIT_S = "brain.agent.body_tools:POSE_WAIT_S"
+DEFAULT_MAX_EDGE_PX = "brain.agent.body_tools:DEFAULT_MAX_EDGE_PX"
+RESOLVED_TTL_S = "brain.egress:RESOLVED_TTL_S"
+SCRYPT_LOG_N = "tools.migrate:SCRYPT_LOG_N"
+PASSPHRASE_MIN_CHARS = "tools.migrate:MIN_PASSPHRASE"
+LOG_RECORD_MAX_BYTES = "brain.limits:LOG_RECORD_MAX_BYTES"
+PEER_LOG_LINES_PER_MIN_MAX = "brain.limits:PEER_LOG_LINES_PER_MIN_MAX"
+MANIFEST_MAX_BYTES = "tools.chaos.manifest:MANIFEST_MAX_BYTES"
+CAPTURE_MAX_EDGE_PX_MIN = "spec:protocol/v0.schema.json capture_image.max_edge minimum (brain.body.base MAX_EDGE_PX_RANGE)"
+CAPTURE_MAX_EDGE_PX_MAX = "spec:protocol/v0.schema.json capture_image.max_edge maximum (brain.body.base MAX_EDGE_PX_RANGE)"
+IDENTIFIER_MAX_CHARS = "spec:protocol/v0.schema.json $defs/ident pattern"
+NAME_MAX_CHARS = "spec:protocol/v0.schema.json $defs/name pattern"
+HELLO_SOFTWARE_MAX_CHARS = "spec:protocol/v0.schema.json hello.software maxLength"
+HELLO_NAMES_MAX = "spec:protocol/v0.schema.json hello.capabilities maxItems"
+ECHO_TEXT_MAX_CHARS = "spec:protocol/v0.schema.json echo.text maxLength"
+SPOKEN_TEXT_MAX_CHARS = "spec:brain/agent/tools.v0.json speak.text maxLength"
+TOOL_NAME_MAX_CHARS = "spec:brain/agent/tools.py TOOL_NAME pattern"
+ERROR_MESSAGE_MAX_CHARS = "literal:brain/transport/protocol.py ProtocolError.__init__ [:500]"
+LOG_KEY_MAX_CHARS = "literal:brain/agent/tools.py _show_keys [:40]"
+TOOL_TIMEOUT_MAX_S = "literal:brain/agent/tools.py catalogue_problems 600"
+QUAT_NORM_TOL = "literal:brain/body/types.py Pose.__post_init__ 1e-3"
+MAX_PEER_ERRORS_PER_MIN = "literal:brain/transport/link.py Link.__init__ max_peer_errors_per_min=20"
+BINARY_PAIR_TIMEOUT_S = "literal:brain/transport/link.py Link.__init__ binary_timeout_s=10.0"
+ACL_TOOL_TIMEOUT_S = "literal:brain/transport/auth.py _restrict_dir timeout=15"
+JSON_MAX_DEPTH = "provisional: not enforced; deep nesting is caught only as RecursionError"
+CONFIG_MAX_BYTES = "provisional: not enforced (H-05)"
+ENV_FILE_MAX_BYTES = "provisional: not enforced (H-05)"
+ABANDONED_TASKS_PER_TOOL_MAX = "provisional: not enforced (H-20)"
+ARCHIVE_MAX_BYTES = "provisional: not enforced (H-01)"
+ARCHIVE_UNPACKED_MAX_BYTES = "provisional: not enforced (H-01)"

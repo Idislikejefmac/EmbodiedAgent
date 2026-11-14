@@ -1,0 +1,14 @@
+#!/bin/sh
+# Pre-push hook for the Embodied Agent repository (card X-01). Not installed automatically.
+# Install:  copy tools\chaos\pre-push.sample .git\hooks\pre-push      (Windows)
+#           cp tools/chaos/pre-push.sample .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# It refuses the push when the entry-point manifest has drifted from the code or the quick chaos run
+# fails. Bypass only on purpose: git push --no-verify (and say why in the commit or PR).
+
+PY=".venv/Scripts/python.exe"
+[ -x "$PY" ] || PY=".venv/bin/python"
+[ -x "$PY" ] || PY="python"
+
+"$PY" -m brain chaos --check-manifest || { echo "pre-push: manifest drift (python -m brain chaos --manifest-stub)"; exit 1; }
+"$PY" -m brain chaos --quick --no-results || { echo "pre-push: the quick chaos run failed (see the reproduce lines)"; exit 1; }
+exit 0

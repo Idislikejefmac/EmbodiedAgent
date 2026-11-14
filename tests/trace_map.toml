@@ -1,0 +1,443 @@
+# tests/trace_map.toml: maps collected pytest node ids to T- and R- ids without editing the tests
+# (docs/testing/50 section 3.2). Read by tools/trace.py. New tests carry @pytest.mark.trace(...) or a
+# docstring header instead ("T-P0-05-071 P5 R-FND-17: ...").
+#
+# [[file]]  default ownership of a whole file (never counts as coverage of a specific id)
+# [[test]]  node (exact, or a glob such as "...::test_x[*]"), ids, optional promises, risks, classes
+# [[manual]] a manual procedure whose evidence lives in a gate record
+# [status]  card state (planned | in_progress | done) until docs/testing/status.toml exists
+# [[waiver]] card, rule (0 to 6), item (a risk or promise id, or "*"), reason, owner, expires (YYYY-MM-DD)
+#
+# Seeded on 13 Nov 2026 by `python tools/trace.py seed` from doc 10 rows marked Existing (only rows whose
+# function name matches exactly one collected test), then spot-checked. Stage 1b maps the rest.
+
+schema = 1
+
+[scopes]
+X01 = "X-01"
+
+[status]
+"P0-04" = "done"
+"P0-05" = "done"
+"P0-06" = "done"
+"X-01" = "in_progress"
+
+[[file]]
+path = "tests/test_smoke.py"
+card = "P0-04"
+[[file]]
+path = "tests/test_boundary_lint.py"
+card = "P0-04"
+[[file]]
+path = "tests/test_migrate.py"
+card = "P0-04"
+[[file]]
+path = "tests/test_typing.py"
+card = "P0-04"
+[[file]]
+path = "tests/test_transport_server.py"
+card = "P0-05"
+[[file]]
+path = "tests/test_protocol_schema.py"
+card = "P0-05"
+[[file]]
+path = "tests/test_binary_frame.py"
+card = "P0-05"
+[[file]]
+path = "tests/test_body_contract.py"
+card = "P0-06"
+[[file]]
+path = "tests/test_body_types.py"
+card = "P0-06"
+[[file]]
+path = "tests/test_tools.py"
+card = "P0-06"
+[[file]]
+path = "tests/test_link_body.py"
+card = "P0-06"
+[[file]]
+path = "tests/test_sim_body.py"
+card = "P0-06"
+[[file]]
+path = "tests/test_egress.py"
+card = "P0-06"
+[[file]]
+path = "tests/test_p0_06_acceptance.py"
+card = "P0-06"
+[[file]]
+path = "tests/chaos/test_chaos_runner.py"
+card = "X-01"
+[[file]]
+path = "tests/chaos/test_chaos_manifest.py"
+card = "X-01"
+[[file]]
+path = "tests/chaos/test_chaos_monitors.py"
+card = "X-01"
+[[file]]
+path = "tests/chaos/test_chaos_planted_bugs.py"
+card = "X-01"
+
+# ---- X-01's own tests ----
+[[test]]
+node = "tests/chaos/test_chaos_manifest.py::test_discovery_finds_every_kind_built_today"
+ids = ["T-X01-001"]
+risks = ["R-FND-33"]
+[[test]]
+node = "tests/chaos/test_chaos_manifest.py::test_planted_*"
+ids = ["T-X01-002"]
+risks = ["R-FND-33"]
+[[test]]
+node = "tests/chaos/test_chaos_runner.py::test_replaying_one_case_by_its_id_gives_the_same_verdict"
+ids = ["T-X01-003"]
+risks = ["R-FND-36"]
+[[test]]
+node = "tests/chaos/test_chaos_runner.py::test_quick_run_fits_its_budget"
+ids = ["T-X01-004"]
+risks = ["R-FND-32"]
+[[test]]
+node = "tests/chaos/test_chaos_planted_bugs.py::test_planted_*"
+ids = ["T-X01-005", "T-X01-007", "T-X01-008"]
+risks = ["R-FND-31"]
+[[test]]
+node = "tests/chaos/test_chaos_monitors.py::test_side_effect_audit_fires*"
+ids = ["T-X01-013", "T-X01-014", "T-X01-030"]
+risks = ["R-FND-34", "R-FND-35", "R-FND-31"]
+[[test]]
+node = "tests/chaos/test_chaos_runner.py::test_results_file_has_date_commit_counts_and_no_secret"
+ids = ["T-X01-015"]
+[[test]]
+node = "tests/chaos/test_chaos_manifest.py::test_a_corrupt_manifest_is_refused_with_a_message*"
+ids = ["T-X01-020"]
+[[test]]
+node = "tests/chaos/test_chaos_runner.py::test_bad_runner_arguments_are_refused_with_usage*"
+ids = ["T-X01-022"]
+[[test]]
+node = "tests/chaos/test_chaos_monitors.py::test_crash_detector_fires*"
+ids = ["T-X01-031", "T-X01-043"]
+risks = ["R-FND-31"]
+[[test]]
+node = "tests/chaos/test_chaos_monitors.py::test_resource_monitor_fires*"
+ids = ["T-X01-025", "T-X01-032", "T-X01-034"]
+risks = ["R-FND-31"]
+[[test]]
+node = "tests/chaos/test_chaos_monitors.py::test_secret_scan_fires_on_a_canary*"
+ids = ["T-X01-033"]
+risks = ["R-FND-31"]
+[[test]]
+node = "tests/chaos/test_chaos_runner.py::test_same_seed_same_cases"
+ids = ["T-X01-035"]
+risks = ["R-FND-36"]
+[[test]]
+node = "tests/chaos/test_chaos_api.py::test_experiment_refuses_misuse*"
+ids = ["T-X01-036"]
+[[test]]
+node = "tests/chaos/test_chaos_api.py::test_e2_lint_matches_its_baseline_and_catches_a_new_assert"
+ids = ["T-X01-038"]
+[[test]]
+node = "tests/chaos/test_chaos_network_policy.py::test_the_suite_policy_allows_no_outside_destination"
+ids = ["T-P0-06-076"]
+[[test]]
+node = "tests/chaos/test_chaos_network_policy.py::test_a_real_call_from_a_test_is_refused_before_any_lookup*"
+ids = ["T-P0-06-077"]
+
+# ---- seeded from doc 10 (Existing rows) ----
+[[test]]
+node = "tests/test_smoke.py::test_python_dash_m_brain_prints_version_line"
+ids = ["T-P0-04-001"]
+
+[[test]]
+node = "tests/test_smoke.py::test_version_is_set"
+ids = ["T-P0-04-001"]
+
+[[test]]
+node = "tests/test_smoke.py::test_config_loads_and_has_an_egress_allowlist"
+ids = ["T-P0-04-002"]
+
+[[test]]
+node = "tests/test_smoke.py::test_key_presence_reports_names_never_values"
+ids = ["T-P0-04-003"]
+
+[[test]]
+node = "tests/test_smoke.py::test_parse_env_file_missing_is_empty"
+ids = ["T-P0-04-003"]
+
+[[test]]
+node = "tests/test_migrate.py::test_round_trip"
+ids = ["T-P0-04-004"]
+
+[[test]]
+node = "tests/test_boundary_lint.py::test_brain_has_no_phone_words_outside_phone_body"
+ids = ["T-P0-04-014"]
+
+[[test]]
+node = "tests/test_boundary_lint.py::test_only_body_and_main_import_the_phone_body"
+ids = ["T-P0-04-014"]
+
+[[test]]
+node = "tests/test_boundary_lint.py::test_import_check_catches_each_import_style"
+ids = ["T-P0-04-015"]
+
+[[test]]
+node = "tests/test_boundary_lint.py::test_phone_package_is_allowed"
+ids = ["T-P0-04-015"]
+
+[[test]]
+node = "tests/test_boundary_lint.py::test_word_check_catches_other_file_types_and_names"
+ids = ["T-P0-04-015"]
+
+[[test]]
+node = "tests/test_smoke.py::test_key_presence_reports_names_never_values"
+ids = ["T-P0-04-016"]
+
+[[test]]
+node = "tests/test_protocol_schema.py::test_doc_examples_stamp_their_own_clock"
+ids = ["T-P0-05-001"]
+
+[[test]]
+node = "tests/test_protocol_schema.py::test_every_doc_example_validates"
+ids = ["T-P0-05-001"]
+
+[[test]]
+node = "tests/test_protocol_schema.py::test_every_message_type_has_a_doc_example"
+ids = ["T-P0-05-001"]
+
+[[test]]
+node = "tests/test_protocol_schema.py::test_hand_written_examples_validate*"
+ids = ["T-P0-05-001"]
+
+[[test]]
+node = "tests/test_protocol_schema.py::test_schema_is_valid_draft_2020_12"
+ids = ["T-P0-05-001"]
+
+[[test]]
+node = "tests/test_binary_frame.py::test_empty_data_is_allowed"
+ids = ["T-P0-05-002"]
+
+[[test]]
+node = "tests/test_binary_frame.py::test_golden_vector_packs_and_unpacks"
+ids = ["T-P0-05-002"]
+
+[[test]]
+node = "tests/test_binary_frame.py::test_header_is_20_bytes_big_endian"
+ids = ["T-P0-05-002"]
+
+[[test]]
+node = "tests/test_binary_frame.py::test_round_trip_every_type_with_100kb*"
+ids = ["T-P0-05-002"]
+
+[[test]]
+node = "tests/test_binary_frame.py::test_spec_shows_the_same_vector"
+ids = ["T-P0-05-002"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_client_connects_authenticates_and_gets_hello_reply"
+ids = ["T-P0-05-003"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_hello_with_unknown_capabilities_and_commands_is_accepted"
+ids = ["T-P0-05-003"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_clock_estimate_is_kept_across_reconnects_of_the_same_body_run"
+ids = ["T-P0-05-004"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_heartbeats_flow_both_ways_and_give_a_clock_offset"
+ids = ["T-P0-05-004"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_echo_json_and_100kb_binary_round_trip_intact"
+ids = ["T-P0-05-005"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_newest_body_replaces_the_older_one"
+ids = ["T-P0-05-007"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_server_restart_accepts_a_new_session"
+ids = ["T-P0-05-007"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_server_stop_closes_with_1001_and_logs_the_clock_summary"
+ids = ["T-P0-05-007"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_an_empty_estimator_is_still_reused"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_clock_consistency_check_drops_a_different_peer"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_clock_drift_is_fitted_and_followed"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_clock_estimate_follows_drift_with_fresh_samples"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_clock_estimate_holds_through_a_long_burst_of_delayed_samples"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_clock_estimator_picks_min_rtt_sample"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_clock_history_is_bounded"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_max_deviation_from_the_fitted_line_ignores_steady_drift"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_one_bogus_low_rtt_sample_is_undone_by_the_next_good_one"
+ids = ["T-P0-05-008"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_hmac_known_answer_vectors_match_the_kotlin_body"
+ids = ["T-P0-05-009"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_shared_clock_vector_matches_the_kotlin_body"
+ids = ["T-P0-05-009"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_a_handler_may_await_a_request_without_deadlock"
+ids = ["T-P0-05-010"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_request_helper_resolves_errors_timeouts_and_disconnects"
+ids = ["T-P0-05-010"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_nothing_is_processed_between_hello_and_auth"
+ids = ["T-P0-05-012"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_an_unauthenticated_client_cannot_evict_the_body"
+ids = ["T-P0-05-013"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_idle_handshakes_cannot_lock_a_body_out"
+ids = ["T-P0-05-013"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_origin_header_is_refused"
+ids = ["T-P0-05-014"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_a_token_file_others_can_open_or_a_corrupt_one_is_refused"
+ids = ["T-P0-05-015"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_cli_reports_token_store_problems_without_a_traceback"
+ids = ["T-P0-05-015"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_legacy_token_files_are_deleted_without_changing_the_current_token"
+ids = ["T-P0-05-015"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_token_file_is_created_private_once_and_rotates"
+ids = ["T-P0-05-015"]
+
+[[test]]
+node = "tests/test_egress.py::test_python_dash_m_brain_installs_the_guard_strips_proxies_and_refuses"
+ids = ["T-P0-05-016"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_non_loopback_detection"
+ids = ["T-P0-05-017"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_body_may_not_send_commands_to_the_brain"
+ids = ["T-P0-05-018"]
+
+[[test]]
+node = "tests/test_transport_server.py::test_body_side_rejects_unknown_and_smuggled_commands"
+ids = ["T-P0-05-018"]
+
+[[test]]
+node = "tests/test_body_contract.py::test_body_contract*"
+ids = ["T-P0-06-001"]
+
+[[test]]
+node = "tests/test_body_contract.py::test_phone_body_implements_exactly_the_core_today"
+ids = ["T-P0-06-001"]
+
+[[test]]
+node = "tests/test_body_contract.py::test_sim_passes_the_contract_in_full"
+ids = ["T-P0-06-001"]
+
+[[test]]
+node = "tests/test_tools.py::test_boundary_requests_are_refused_and_logged_and_touch_nothing"
+ids = ["T-P0-06-010"]
+
+[[test]]
+node = "tests/test_tools.py::test_the_five_requests_from_the_card_by_name"
+ids = ["T-P0-06-010"]
+
+[[test]]
+node = "tests/test_tools.py::test_body_tool_handlers_import_nothing_that_could_touch_the_system"
+ids = ["T-P0-06-011"]
+
+[[test]]
+node = "tests/test_tools.py::test_code_cannot_register_a_tool_that_is_not_listed"
+ids = ["T-P0-06-012"]
+
+[[test]]
+node = "tests/test_tools.py::test_a_turns_channel_is_that_of_its_least_privileged_input"
+ids = ["T-P0-06-013"]
+
+[[test]]
+node = "tests/test_tools.py::test_caller_carries_who_is_asking_and_refuses_malformed_identity"
+ids = ["T-P0-06-013"]
+
+[[test]]
+node = "tests/test_tools.py::test_console_only_tools_are_refused_on_the_app_channel_whoever_asks"
+ids = ["T-P0-06-013"]
+
+[[test]]
+node = "tests/test_tools.py::test_sensitive_tools_need_a_confirmed_identity_on_both_face_and_voice"
+ids = ["T-P0-06-013"]
+
+[[test]]
+node = "tests/test_tools.py::test_set_quiet_is_reserved_for_the_app_channel_and_is_not_sensitive"
+ids = ["T-P0-06-013"]
+
+[[test]]
+node = "tests/test_link_body.py::test_a_body_cannot_announce_the_links_state"
+ids = ["T-P0-06-014"]
+
+[[test]]
+node = "tests/test_tools.py::test_fixed_messages_name_no_card_and_no_particular_body"
+ids = ["T-P0-06-015"]
+
+[[test]]
+node = "tests/test_tools.py::test_nothing_an_adapter_or_handler_says_reaches_the_model"
+ids = ["T-P0-06-015"]
+
+[[test]]
+node = "tests/test_egress.py::test_asyncio_connections_to_unlisted_destinations_fail"
+ids = ["T-P0-06-016"]
+
+[[test]]
+node = "tests/test_egress.py::test_blocking_connections_to_unlisted_destinations_fail"
+ids = ["T-P0-06-016"]
+
+[[test]]
+node = "tests/test_egress.py::test_only_the_chokepoint_imports_network_or_process_libraries"
+ids = ["T-P0-06-016"]
+
+[[test]]
+node = "tests/test_egress.py::test_the_lint_catches_each_way_of_reaching_out"
+ids = ["T-P0-06-016"]
+
+[[test]]
+node = "tests/test_egress.py::test_websocket_client_to_an_unlisted_host_fails"
+ids = ["T-P0-06-016"]
+

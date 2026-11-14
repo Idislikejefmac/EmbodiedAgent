@@ -1,4 +1,4 @@
-"""python -m brain [info|serve|probe|pair|body-check].
+"""python -m brain [info|serve|probe|pair|body-check|chaos].
 
 info (default): print the version, load config, and report which keys exist.
 serve: run the protocol v0 WebSocket server (and keep the phone link up unless --no-phone-link).
@@ -6,6 +6,7 @@ probe: connect as a test body and run the echo test against a running server.
 pair: give the phone body this brain's link token (debug builds of the body only).
 body-check: start a body (--body sim or phone), call every agent tool through the registry, and try the
     command-boundary requests. With --body sim it needs no phone and no network.
+chaos: the chaos and boundary test harness (tools/chaos/README.md): --quick, --full, --seed N.
 
 Every command runs under the egress guard (brain/egress.py): only the destinations in config.toml
 [egress] can be reached, plus loopback ports this process listens on. `probe` may also dial the
@@ -261,6 +262,19 @@ def body_check(args, config: dict) -> int:
     return asyncio.run(_body_check(body, args.wait))
 
 
+def chaos(argv: list[str]) -> int:
+    """The chaos harness (tools/chaos, card X-01). It runs under a stricter guard than the brain itself:
+    loopback only, no [egress] destination at all, installed before the harness is even imported."""
+    from .egress import EgressPolicy, install_guard
+
+    install_guard(EgressPolicy())
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))  # the harness lives in tools/, outside the brain package
+    from tools.chaos.runner import main as chaos_main
+
+    return chaos_main(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
     from .egress import EgressPolicy, install_guard
 
@@ -288,6 +302,11 @@ def main(argv: list[str] | None = None) -> int:
     bc = sub.add_parser("body-check", help="start a body, call every agent tool, try the boundary requests")
     bc.add_argument("--body", choices=("sim", "phone"), default=None, help="default: config.toml [body] kind")
     bc.add_argument("--wait", type=float, default=30.0, help="seconds to wait for the body to connect")
+    sub.add_parser("chaos", add_help=False,
+                   help="run the chaos and boundary test harness (card X-01; `chaos --help` for its options)")
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["chaos"]:
+        return chaos(argv[1:])
     args = parser.parse_args(argv)
     # The guard goes on before anything else runs. Only `probe` dials a port of another local process.
     probe_port = {args.port} if args.cmd == "probe" and is_loopback(args.host) and 1 <= args.port <= 65535 else set()
