@@ -13,6 +13,7 @@ import asyncio
 import ipaddress
 import logging
 import logging.handlers
+import os
 import signal
 import sys
 from datetime import datetime
@@ -32,6 +33,7 @@ def info() -> int:
     data_dir = REPO_ROOT / config.get("paths", {}).get("data_dir", "data")
     data_dir.mkdir(parents=True, exist_ok=True)
     print(f"data dir: {data_dir}")
+    print(f"secrets dir (link token): {secrets_dir(config)}")
     for name, present in key_presence().items():
         print(f"key {name}: {'present' if present else 'missing'}")
     return 0
@@ -39,6 +41,28 @@ def info() -> int:
 
 def data_dir(config: dict) -> Path:
     return REPO_ROOT / config.get("paths", {}).get("data_dir", "data")
+
+
+def secrets_dir(config: dict) -> Path:
+    """Where the link token lives: config [paths] secrets_dir, else a private folder in the user profile."""
+    from .transport.auth import default_secrets_dir
+
+    override = config.get("paths", {}).get("secrets_dir")
+    return Path(os.path.expandvars(override)).expanduser() if override else default_secrets_dir()
+
+
+def load_token(config: dict, *, rotate: bool = False) -> tuple[bytes | None, str]:
+    """(token, "") or (None, a message saying what is wrong and what to do). Never raises."""
+    from .transport.auth import TokenStoreError, load_or_create_token
+
+    d = data_dir(config)
+    try:
+        return load_or_create_token(secrets_dir(config), rotate=rotate,
+                                    legacy=(d / "link_token", d / "secrets" / "link_token")), ""
+    except TokenStoreError as e:
+        return None, f"link token store is not safe: {e}"
+    except OSError as e:
+        return None, f"could not read or create the link token in {secrets_dir(config)}: {e}"
 
 
 def setup_logging(config: dict, name: str, verbose: bool = False) -> str:
@@ -113,8 +137,6 @@ async def _keep_phone_link(port: int, log: logging.Logger) -> None:
 
 
 def serve(args, config: dict) -> int:
-    from .transport.auth import TokenStoreError, load_or_create_token
-
     log_file = setup_logging(config, "serve", args.verbose)
     log = logging.getLogger("brain.serve")
     log.info("embodied-agent brain %s; log file %s", __version__, log_file)
@@ -126,10 +148,9 @@ def serve(args, config: dict) -> int:
                     "endpoints once but adds no per-message integrity: anyone on the network path can read, "
                     "inject into or take over the session after it. Use only on a network you control. !!!",
                     args.host)
-    try:
-        token = load_or_create_token(data_dir(config))
-    except TokenStoreError as e:
-        log.error("link token store is not safe: %s", e)
+    token, problem = load_token(config)
+    if token is None:
+        log.error("%s", problem)
         return 2
     asyncio.run(_serve(args, token, log))
     log.info("stopped")
@@ -137,14 +158,17 @@ def serve(args, config: dict) -> int:
 
 
 def probe(args, config: dict) -> int:
-    from .transport.auth import load_or_create_token
+    from .transport.auth import AuthError
     from .transport.client import TestBodyClient
 
     setup_logging(config, "probe")
     log = logging.getLogger("brain.probe")
     log.warning("probe connects as a body: the brain serves one body at a time, so a connected body is "
                 "replaced (close 4001) and stops until Connect is pressed again")
-    token = load_or_create_token(data_dir(config))
+    token, problem = load_token(config)
+    if token is None:
+        log.error("%s", problem)
+        return 2
 
     async def go():
         url = f"ws://{args.host}:{args.port}/"
@@ -154,17 +178,19 @@ def probe(args, config: dict) -> int:
             log.info("echo result: %s ok=%s", res, res.ok)
             return res.ok
 
-    return 0 if asyncio.run(go()) else 1
+    try:
+        return 0 if asyncio.run(go()) else 1
+    except (OSError, AuthError) as e:
+        log.error("probe failed: %s", e)
+        return 1
 
 
 def pair(args, config: dict) -> int:
     from .body import phone
-    from .transport.auth import TokenStoreError, load_or_create_token
 
-    try:
-        token = load_or_create_token(data_dir(config), rotate=args.rotate)
-    except TokenStoreError as e:
-        print(f"link token store is not safe: {e}")
+    token, problem = load_token(config, rotate=args.rotate)
+    if token is None:
+        print(problem)
         return 2
     ok, message = phone.pair(token)
     print(message)

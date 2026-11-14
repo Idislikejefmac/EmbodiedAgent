@@ -45,7 +45,7 @@ Prints the version, loads `config.toml`, and says which API keys are present or 
 
 Listens on `ws://127.0.0.1:8765/` (from `config.toml` `[network]`), runs `adb reverse tcp:8765 tcp:8765` so the phone can reach it and re-runs it every minute (skip with `--no-phone-link`), and logs to the console and to `data/logs/serve-<time>.log` (rotated at 10 MB): connections, the clock offset once a minute, echo-test results and any refused message. `-v` logs every clock sample and event payloads. Stop with Ctrl+C (or Ctrl+Break): connections close with 1001 and each session's clock summary is logged. A non-loopback `--host` is refused unless you add `--allow-remote`. The protocol is specified in `protocol/v0.md`.
 
-Bodies must be paired: on first start the brain creates a random token in `data/secrets/link_token` (git-ignored; the folder is made private to your account first, and the brain refuses a token file anyone else owns or can read). Give it to the phone once, with a debug build of the app installed (the token goes to adb on stdin, never on a command line). `pair --rotate` makes a new token first; restart `serve` afterwards. The handshake proves both ends once but does not encrypt or protect each message, so it is only meant for loopback and the adb link (see `protocol/v0.md` section 4.2):
+Bodies must be paired: on first start the brain creates a random token in `%LOCALAPPDATA%\EmbodiedAgent\secrets\link_token` (outside the repo, in a folder made private to your account; `config.toml` `[paths] secrets_dir` can move it). The brain refuses a token file anyone else owns or can read, and says what to do. `python -m brain info` prints the location. Give it to the phone once, with a debug build of the app installed (the token goes to adb on stdin, never on a command line). `pair --rotate` makes a new token first; restart `serve` afterwards. The handshake proves both ends once but does not encrypt or protect each message, so it is only meant for loopback and the adb link (see `protocol/v0.md` section 4.2):
 
 ```powershell
 .\.venv\Scripts\python -m brain pair
@@ -87,6 +87,12 @@ adb logcat -s EmbodiedLink
 ## Phone link
 
 The laptop is a company device whose firewall blocks the phone, so the phone reaches the brain through `adb reverse tcp:8765 tcp:8765` over wireless debugging and connects to `127.0.0.1:8765`. A direct WiFi address would need a change to `body-android/app/src/main/res/xml/network_security_config.xml` (cleartext is allowed only to 127.0.0.1 and localhost), a rebuild, and `serve --allow-remote`; see `protocol/v0.md` open question 3 before sending camera or microphone data that way.
+
+## Security notes
+
+- The link token lives in your user profile, not in the repo, because other local accounts can modify files under `C:\jeffsource`: folders created under `C:\` inherit "Authenticated Users: Modify". The same applies to the code itself: another account on this laptop could edit the brain. If the laptop has other accounts, tighten the repo folder, for example `icacls C:\jeffsource\EmbodiedAgent /inheritance:r /grant:r "%USERDOMAIN%\%USERNAME%:(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"` (not run by the project; it changes folder permissions).
+- Run the brain from a normal prompt, not "Run as administrator": files created elevated are owned by Administrators and the brain will refuse them.
+- The link is authenticated but not encrypted (`protocol/v0.md` section 4.2): keep it on loopback and the adb link.
 
 ## Moving the project to another machine
 

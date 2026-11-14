@@ -16,12 +16,14 @@ import android.os.Looper
  * Keeps the brain link alive while the app is not on screen (phone locked, or another app in front).
  *
  * Runs only between an explicit Connect and a stop: the Stop button, the notification's Stop action,
- * swiping the app away, or BrainLink stopping itself (brain unreachable for 3 minutes, replaced by another
- * body, or authentication failed). START_NOT_STICKY: Android never restarts it on its own.
+ * swiping the app away, or BrainLink stopping itself (3 minutes without a stable link, the brain shut down and
+ * did not return within a minute, or another body replaced it; authentication failures are retried within those
+ * 3 minutes, never an immediate stop). START_NOT_STICKY: Android never restarts it on its own.
  * The CPU wake lock lives in BrainLink and is held only while connected.
  */
 class LinkService : Service(), BrainLink.Listener {
     private var foreground = false
+    @Volatile private var destroyed = false  // a state posted after onDestroy must not re-post the notification
     private val main = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
@@ -56,6 +58,8 @@ class LinkService : Service(), BrainLink.Listener {
     }
 
     override fun onDestroy() {
+        destroyed = true
+        main.removeCallbacksAndMessages(null)
         BrainLink.removeListener(this)
         if (BrainLink.isRunning) BrainLink.stop("service destroyed")
         super.onDestroy()
@@ -69,6 +73,7 @@ class LinkService : Service(), BrainLink.Listener {
     }
 
     private fun applyState(state: BrainLink.State, detail: String) {
+        if (destroyed) return
         val text = when (state) {
             BrainLink.State.CONNECTED -> "Connected to the brain ($detail)"
             BrainLink.State.CONNECTING -> "Connecting to the brain"

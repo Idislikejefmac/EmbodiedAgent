@@ -109,6 +109,24 @@ class ClockOffset(
         return worst
     }
 
+    /** Largest |estimate - least-squares line through the estimate| after [warmupS] from [sinceUs]
+     * (same definition as the brain's max_dev_from_fit_us). Null with under a minute after the warm-up. */
+    fun maxDevFromFitUs(sinceUs: Long = 0, warmupS: Double = 60.0): Double? {
+        val all = history.filter { it.first >= sinceUs }
+        if (all.isEmpty()) return null
+        val start = all.first().first + (warmupS * 1e6).toLong()
+        val h = all.filter { it.first >= start }
+        if (h.size < 3 || h.last().first - h.first().first < 60_000_000L) return null
+        val t0 = h.first().first
+        val n = h.size
+        val mx = h.sumOf { (it.first - t0).toDouble() } / n
+        val my = h.sumOf { it.second } / n
+        val sxx = h.sumOf { Math.pow(it.first - t0 - mx, 2.0) }
+        val sxy = h.sumOf { (it.first - t0 - mx) * (it.second - my) }
+        val slope = if (sxx > 0) sxy / sxx else 0.0
+        return h.maxOf { abs(it.second - (my + slope * (it.first - t0 - mx))) }
+    }
+
     fun clear() {
         samples.clear()
         history.clear()

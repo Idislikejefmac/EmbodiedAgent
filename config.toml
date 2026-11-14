@@ -22,3 +22,7 @@ allowed_hosts = ["api.anthropic.com"]
 
 [paths]
 data_dir = "data"
+# The link token lives outside the repo, in a folder private to you inside your user profile
+# (%LOCALAPPDATA%\EmbodiedAgent\secrets on Windows). Uncomment to put it elsewhere; the folder must not be
+# inside a directory that other local accounts can modify.
+# secrets_dir = "%LOCALAPPDATA%\\EmbodiedAgent\\secrets"

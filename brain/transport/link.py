@@ -71,7 +71,7 @@ class Link:
         self.liveness_s = liveness_s
         self.binary_timeout_s = binary_timeout_s
         self.send_timeout_s = send_timeout_s
-        self.clock = clock or ClockOffsetEstimator()
+        self.clock = ClockOffsetEstimator() if clock is None else clock
         self.session_start_us = p.now_us()
         self._clock_samples = 0
         self.last_sent_text = ""
@@ -333,16 +333,19 @@ class Link:
         self._requests.clear()
 
     def clock_summary(self) -> str:
-        """Section 6 stability: after a 60 s warm-up, the largest change of the estimate within any 60 s
-        window (limit 20 ms). The whole-session spread includes real clock drift and is for information."""
+        """Section 6 stability, both after a 60 s warm-up: the largest change of the estimate within any 60 s
+        window, and the largest deviation of the estimate from a straight line fitted to it over the session
+        (both held to 20 ms). The whole-session spread includes real clock drift and is for information."""
         c = self.clock
         if self._clock_samples == 0 or c.best is None:
             return "clock summary: no samples this session"
         change = c.max_change_us(since_us=self.session_start_us)
+        dev = c.max_dev_from_fit_us(since_us=self.session_start_us)
         spread = c.spread_us(since_us=self.session_start_us)
         drift = c.drift_fit_ppm
         return (f"clock summary: samples={self._clock_samples} max_change_60s_ms="
                 f"{'n/a (under 2 min of data)' if change is None else f'{change / 1000:.3f}'} "
-                f"(limit 20, after 60 s warm-up) drift_ppm={'none' if drift is None else f'{drift:.1f}'} "
+                f"max_dev_from_fit_ms={'n/a (under 2 min of data)' if dev is None else f'{dev / 1000:.3f}'} "
+                f"(limits 20, after 60 s warm-up) drift_ppm={'none' if drift is None else f'{drift:.1f}'} "
                 f"estimate_ms={c.estimate_us / 1000:.3f} best_rtt_ms={c.best.rtt_us / 1000:.2f} "
                 f"session_spread_ms={spread / 1000:.3f} resets={c.resets}")

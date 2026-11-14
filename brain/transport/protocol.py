@@ -14,7 +14,7 @@ import zlib
 from dataclasses import dataclass
 from functools import lru_cache
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, validators
 
 from ..config import REPO_ROOT
 
@@ -133,11 +133,22 @@ def schema() -> dict:
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
+def _is_strict_integer(checker, instance) -> bool:
+    """JSON Schema counts 1.0 as an integer; v0 does not: ids, timestamps and counts must be written as
+    integers, so `1.0` is refused instead of being echoed back as `reply_to: 1.0`."""
+    return isinstance(instance, int) and not isinstance(instance, bool)
+
+
+_StrictValidator = validators.extend(
+    Draft202012Validator,
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _is_strict_integer))
+
+
 @lru_cache(maxsize=1)
 def _validator() -> Draft202012Validator:
     s = schema()
     Draft202012Validator.check_schema(s)
-    return Draft202012Validator(s)
+    return _StrictValidator(s)
 
 
 def schema_errors(msg: object) -> list[str]:
@@ -176,7 +187,7 @@ def validate(msg: object, *, sender: str | None = None) -> dict:
     silent = msg.get("type") == "error"  # never answer an error with an error
     if "v" not in msg:
         raise ProtocolError("bad_envelope", "missing field 'v'", reply_to=msg_id, silent=silent)
-    if msg["v"] != PROTOCOL_VERSION or isinstance(msg["v"], bool):
+    if msg["v"] != PROTOCOL_VERSION or not isinstance(msg["v"], int) or isinstance(msg["v"], bool):
         raise ProtocolError("unsupported_version", f"v={str(msg.get('v'))[:32]!r}; this side speaks v0",
                             fatal=True, reply_to=msg_id, silent=silent)
     mtype = msg.get("type")

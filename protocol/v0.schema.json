@@ -16,6 +16,7 @@
   "additionalProperties": false,
   "properties": {
     "v": {
+      "type": "integer",
       "const": 0
     },
     "type": {
@@ -312,16 +313,16 @@
     },
     "name": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      "pattern": "^[a-z][a-z0-9_]{0,63}(?!\n)$"
     },
     "ident": {
       "description": "An identifier chosen by one side. Safe as a file name: no path separators, does not start with a dot.",
       "type": "string",
-      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}$"
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}(?!\n)$"
     },
     "hex256": {
       "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
+      "pattern": "^[0-9a-f]{64}(?!\n)$"
     },
     "byte_length": {
       "type": "integer",
@@ -446,7 +447,7 @@
         },
         "wall_time_utc": {
           "type": "string",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z(?!\n)$"
         },
         "heartbeat_ms": {
           "type": "integer",
@@ -626,6 +627,7 @@
           "maximum": 192000
         },
         "channels": {
+          "type": "integer",
           "enum": [
             1,
             2
@@ -884,9 +886,9 @@
       }
     },
     "text": {
-      "description": "Free text from the peer: no control characters (no newlines), so it cannot forge log lines.",
+      "description": "Free text from the peer: no control characters (no newlines), so it cannot forge log lines. Every pattern ends in (?!\\n)$ so that a trailing newline is refused under Python's $ as well as ECMA-262's.",
       "type": "string",
-      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*(?!\n)$"
     }
   }
 }

@@ -30,6 +30,56 @@ class LinkLogicTest {
     }
 
     @Test
+    fun nonAsciiDigestMatchesThePythonBrain() {
+        assertEquals("f3db413984a06d69e3e0f5fed463b2a20cd9b960f4fe1e0effcb44f5301f06cd",
+            LinkAuth.digest("héllo ✓ 你好"))
+    }
+
+    @Test
+    fun fullTranscriptFromLiteralFrames() {
+        val bh = "{\"v\":0,\"type\":\"hello\",\"id\":1,\"reply_to\":null,\"ts_body\":1,\"ts_brain\":null,\"payload\":{\"role\":\"body\"," +
+            "\"software\":\"t\",\"capabilities\":[],\"auth\":{\"nonce\":\"$a\"}}}"
+        val rh = "{\"v\":0,\"type\":\"hello\",\"id\":1,\"reply_to\":1,\"ts_body\":null,\"ts_brain\":2,\"payload\":{\"role\":\"brain\"," +
+            "\"software\":\"t\",\"capabilities\":[],\"session_id\":\"s-1\",\"auth\":{\"nonce\":\"$b\"}}}"
+        val bodyMac = LinkAuth.proof(token, "body", listOf(LinkAuth.digest(bh), LinkAuth.digest(rh)))
+        assertEquals("d639f06b20ca6144b318be527312c1c29b4b2f2746b6cdedf9bda454fd53c847", bodyMac)
+        val ba = "{\"v\":0,\"type\":\"auth\",\"id\":2,\"reply_to\":null,\"ts_body\":3,\"ts_brain\":null,\"payload\":{\"mac\":\"$bodyMac\"}}"
+        assertEquals("cc7eb754d8b2c94088ffc88312d29d7d4693b3948dd5636a0d3079976f8d6fb1",
+            LinkAuth.proof(token, "brain", listOf(LinkAuth.digest(bh), LinkAuth.digest(rh), LinkAuth.digest(ba))))
+    }
+
+    /** Identical to shared_clock_samples() in tests/test_transport_server.py. */
+    private fun sharedClockSamples(cl: ClockOffset) {
+        for (i in 0 until 600) {
+            val t = i * 2_000_000L
+            val up = 10_000L + (i * 7919L % 37) * 1000
+            var down = 10_000L + (i * 104729L % 41) * 1000
+            if (i in 200 until 230) down += 400_000
+            val x = t + up
+            cl.add(t, x + 5_000_000L - Math.floorDiv(x * 286, 10_000_000L), t + up + down)
+        }
+    }
+
+    @Test
+    fun sharedClockVectorMatchesThePythonBrain() {
+        val cl = ClockOffset()
+        sharedClockSamples(cl)
+        assertEquals(4964788.187875573, cl.estimateUs!!, 0.01)
+        assertEquals(-28.017090186765994, cl.driftFitPpm!!, 1e-6)
+        assertEquals(0, cl.resets)
+        assertEquals(22000L, cl.best!!.rttUs)
+        assertEquals(7314.878631321713, cl.maxChangeUs()!!, 0.01)
+        assertEquals(3797.1683047330007, cl.maxDevFromFitUs()!!, 0.01)
+    }
+
+    @Test
+    fun numbersMustBeIntegers() {
+        assertEquals("bad_envelope", codeOf(envelope("id" to 1.0)))
+        assertEquals("unsupported_version", codeOf(envelope("v" to 0.0)))
+        assertEquals("bad_envelope", codeOf(envelope("ts_brain" to 5.0)))
+    }
+
+    @Test
     fun proofIsRoleAndTranscriptBound() {
         val tr = listOf(a, b)
         val brainMac = LinkAuth.proof(token, "brain", tr)

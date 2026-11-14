@@ -216,6 +216,19 @@ def test_hmac_known_answer_vectors_match_the_kotlin_body():
     assert auth.proof(t, "brain", ["aa" * 32, "bb" * 32, "cc" * 32]) == \
         "00e75be5aa0f7100fedccde85f835bb4cd24f399bc4fae1d260c1bff6ab1819e"
     assert auth.digest("hello") == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    # UTF-8 framing of non-ASCII text (also checked with .NET).
+    assert auth.digest("héllo ✓ 你好") == \
+        "f3db413984a06d69e3e0f5fed463b2a20cd9b960f4fe1e0effcb44f5301f06cd"
+    # One full transcript from literal frames, as in LinkLogicTest.fullTranscriptFromLiteralFrames.
+    bh = ('{"v":0,"type":"hello","id":1,"reply_to":null,"ts_body":1,"ts_brain":null,"payload":{"role":"body",'
+          '"software":"t","capabilities":[],"auth":{"nonce":"' + "aa" * 32 + '"}}}')
+    rh = ('{"v":0,"type":"hello","id":1,"reply_to":1,"ts_body":null,"ts_brain":2,"payload":{"role":"brain",'
+          '"software":"t","capabilities":[],"session_id":"s-1","auth":{"nonce":"' + "bb" * 32 + '"}}}')
+    body_mac = auth.proof(t, "body", [auth.digest(bh), auth.digest(rh)])
+    assert body_mac == "d639f06b20ca6144b318be527312c1c29b4b2f2746b6cdedf9bda454fd53c847"
+    ba = '{"v":0,"type":"auth","id":2,"reply_to":null,"ts_body":3,"ts_brain":null,"payload":{"mac":"' + body_mac + '"}}'
+    assert auth.proof(t, "brain", [auth.digest(bh), auth.digest(rh), auth.digest(ba)]) == \
+        "cc7eb754d8b2c94088ffc88312d29d7d4693b3948dd5636a0d3079976f8d6fb1"
 
 
 def test_proof_is_role_and_transcript_bound():
@@ -268,23 +281,36 @@ def test_an_unauthenticated_client_cannot_evict_the_body():
     run(with_server(go))
 
 
-def test_pending_handshakes_are_capped_and_the_body_is_unaffected():
+def test_idle_handshakes_cannot_lock_a_body_out():
+    """4 idle unauthenticated sockets fill the slots; a real body still gets in (the oldest is evicted)."""
     async def go(server, url):
-        async with body(url) as victim:
-            idle = [await ws_connect(url) for _ in range(4)]
-            try:
-                await wait_for(lambda: server.pending_handshakes == 4)
-                with pytest.raises(InvalidStatus) as e:
-                    async with ws_connect(url):
-                        pass
-                assert e.value.response.status_code == 503
-                assert (await victim.echo_test(count=3, size=100_000)).ok
-            finally:
-                for ws in idle:
-                    await ws.close()
-            await wait_for(lambda: server.pending_handshakes == 0)
-            async with ws_connect(url):  # accepted again
-                pass
+        idle = [await ws_connect(url) for _ in range(4)]
+        try:
+            await wait_for(lambda: server.pending_handshakes == 4)
+            async with body(url) as c:
+                assert (await c.echo_test(count=3, size=100_000)).ok
+                assert server.pending_handshakes <= 4
+            # At least one idle socket was evicted to make room.
+            closed = 0
+            for ws in idle:
+                try:
+                    await asyncio.wait_for(ws.recv(), 0.5)
+                except (ConnectionClosed, TimeoutError):
+                    closed += ws.close_code is not None or ws.state.name in ("CLOSING", "CLOSED")
+            assert closed >= 1
+        finally:
+            for ws in idle:
+                await ws.close()
+    run(with_server(go))
+
+
+def test_a_socket_that_sends_nothing_is_dropped_after_two_seconds():
+    async def go(server, url):
+        async with ws_connect(url) as ws:
+            t = asyncio.get_running_loop().time()
+            got = await collect(ws, quiet=4)
+            assert got and got[0]["payload"]["code"] == "bad_sequence"
+            assert ws.close_code == 1002 and asyncio.get_running_loop().time() - t < 3.5
     run(with_server(go))
 
 
@@ -300,6 +326,17 @@ def test_large_frames_are_refused_before_authentication():
     run(with_server(go))
 
 
+def test_server_refuses_to_start_without_the_pre_auth_limit(monkeypatch):
+    import websockets.server
+
+    class NoLimit:
+        def __init__(self, *a, **kw):
+            pass
+    monkeypatch.setattr(websockets.server, "ServerProtocol", NoLimit)
+    with pytest.raises(RuntimeError, match="max_message_size"):
+        BrainServer.check_library()
+
+
 def test_peer_strings_cannot_forge_log_lines(caplog):
     async def go(server, url):
         async with ws_connect(url) as ws:
@@ -309,40 +346,99 @@ def test_peer_strings_cannot_forge_log_lines(caplog):
             answer = json.loads(await ws.recv())
             assert answer["payload"]["code"] == "bad_payload"  # control characters are not allowed
         async with ws_connect(url) as ws:
-            await raw_handshake(ws, hello_payload={"role": "body", "software": "x y\"z", "capabilities": [],
+            await raw_handshake(ws, hello_payload={"role": "body", "software": "x y\"z", "capabilities": [],
                                                    "auth": {"nonce": auth.new_nonce()}})
     with caplog.at_level(logging.INFO):
         run(with_server(go))
     assert not any("\n" in r.getMessage() for r in caplog.records)
 
 
-def test_token_file_is_created_private_once_and_rotates(tmp_path):
-    t1 = auth.load_or_create_token(tmp_path)
-    t2 = auth.load_or_create_token(tmp_path)
+def test_numbers_must_be_written_as_integers():
+    async def go(server, url):
+        frames = ['{"v":0,"type":"echo","id":3.0,"reply_to":null,"ts_body":5,"ts_brain":null,'
+                  '"payload":{"seq":0,"text":"","byte_length":0,"crc32":0}}',
+                  '{"v":0.0,"type":"echo","id":4,"reply_to":null,"ts_body":5,"ts_brain":null,'
+                  '"payload":{"seq":0,"text":"","byte_length":0,"crc32":0}}']
+        got, _ = await raw_session(url, frames[:1])
+        assert error_codes(got) == ["bad_envelope"] and got[-1]["reply_to"] is None  # never reply_to: 3.0
+    run(with_server(go))
+    with pytest.raises(p.ProtocolError) as e:
+        p.validate({"v": 0.0, "type": "heartbeat", "id": 1, "reply_to": None, "ts_body": 1, "ts_brain": None,
+                    "payload": {}})
+    assert e.value.code == "unsupported_version"
+
+
+def test_trailing_newlines_do_not_pass_patterns():
+    base = {"v": 0, "type": "hello", "id": 1, "reply_to": None, "ts_body": 1, "ts_brain": None}
+    for payload in ({"role": "body", "software": "x", "capabilities": [], "boot_id": "b-1\n"},
+                    {"role": "body", "software": "x\n", "capabilities": []},
+                    {"role": "body", "software": "x", "capabilities": ["echo\n"]},
+                    {"role": "body", "software": "x", "capabilities": [], "auth": {"nonce": "aa" * 32 + "\n"}}):
+        assert p.schema_errors({**base, "payload": payload}), payload
+    assert p.schema_errors({**base, "type": "auth", "payload": {"mac": "aa" * 32 + "\n"}})
+
+
+def test_token_file_is_created_private_once_and_rotates(tmp_path, caplog):
+    store = tmp_path / "secrets"
+    with caplog.at_level(logging.WARNING):
+        t1 = auth.load_or_create_token(store)
+        caplog.clear()
+        t2 = auth.load_or_create_token(store)
     assert t1 == t2 and len(t1) == 32
-    assert auth.acl_problems(auth.token_path(tmp_path)) == []
-    assert auth.acl_problems(auth.token_path(tmp_path).parent) == []
-    t3 = auth.load_or_create_token(tmp_path, rotate=True)
-    assert t3 != t1 and auth.load_or_create_token(tmp_path) == t3
+    assert not any("pair the body again" in r.getMessage() for r in caplog.records)  # unchanged token: silent
+    assert auth.acl_problems(auth.token_path(store)) == []
+    assert auth.acl_problems(store) == []
+    t3 = auth.load_or_create_token(store, rotate=True)
+    assert t3 != t1 and auth.load_or_create_token(store) == t3
     with pytest.raises(ValueError):
         auth.parse_token("abc")
 
 
-def test_a_token_file_others_can_open_is_refused(tmp_path):
-    d = auth.secrets_dir(tmp_path)
-    planted = d / auth.TOKEN_FILE_NAME
-    planted.write_text("00" * 32)
-    # Give another principal access, as a planted or leaked file would have.
+def test_legacy_token_files_are_deleted_without_changing_the_current_token(tmp_path, caplog):
+    store = tmp_path / "secrets"
+    t1 = auth.load_or_create_token(store)
+    old = tmp_path / "link_token"
+    old.write_text("11" * 32)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert auth.load_or_create_token(store, legacy=(old,)) == t1
+    assert not old.exists()
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("deleted the old token file" in m for m in msgs)
+    assert not any("pair the body again" in m for m in msgs)
+
+
+def test_a_token_file_others_can_open_or_a_corrupt_one_is_refused(tmp_path):
     import os
     import subprocess
-    if os.name == "nt":
-        assert subprocess.run(["icacls", str(planted), "/grant", "*S-1-5-32-545:R"],
+    store = auth.ensure_store(tmp_path / "secrets")
+    planted = auth.token_path(store)
+    planted.write_text("00" * 32)
+    if os.name == "nt":  # give another principal access, as a planted or exposed file would have
+        assert subprocess.run([auth._icacls(), str(planted), "/grant", "*S-1-5-32-545:R"],
                               capture_output=True).returncode == 0  # BUILTIN\Users
     else:
         os.chmod(planted, 0o644)
-    assert auth.acl_problems(planted)
-    with pytest.raises(auth.TokenStoreError):
-        auth.load_or_create_token(tmp_path)
+    fd = os.open(planted, os.O_RDONLY)
+    try:
+        assert auth.fd_problems(fd)  # checked on the open handle, not by path
+    finally:
+        os.close(fd)
+    with pytest.raises(auth.TokenStoreError, match="has access|lets others in"):
+        auth.load_or_create_token(store)
+    planted.unlink()
+    planted.write_text("not a token")
+    with pytest.raises(auth.TokenStoreError, match="valid token"):
+        auth.load_or_create_token(store)
+
+
+def test_cli_reports_token_store_problems_without_a_traceback(tmp_path, capsys):
+    from brain import __main__ as cli
+    bad = tmp_path / "secrets"
+    auth.ensure_store(bad)
+    auth.token_path(bad).write_text("junk")
+    token, problem = cli.load_token({"paths": {"secrets_dir": str(bad), "data_dir": str(tmp_path / "data")}})
+    assert token is None and "valid token" in problem
 
 
 def test_hello_role_must_match_the_sender():
@@ -791,3 +887,42 @@ def test_clock_history_is_bounded():
     est = ClockOffsetEstimator(history_cap=100)
     _drifting_link(est, ppm=0, minutes=10)
     assert len(est.history) == 100 and est.count == 300
+
+
+def shared_clock_samples():
+    """600 heartbeats 2 s apart, -28.6 ppm drift, integer queueing pattern, one minute of load.
+    Identical to LinkLogicTest.sharedClockSamples in the Kotlin suite."""
+    for i in range(600):
+        t = i * 2_000_000
+        up = 10_000 + (i * 7919 % 37) * 1000
+        down = 10_000 + (i * 104729 % 41) * 1000
+        if 200 <= i < 230:
+            down += 400_000
+        x = t + up
+        yield t, x + 5_000_000 - (x * 286) // 10_000_000, t + up + down
+
+
+def test_shared_clock_vector_matches_the_kotlin_body():
+    est = ClockOffsetEstimator()
+    for s in shared_clock_samples():
+        est.add(*s)
+    assert est.estimate_us == pytest.approx(4964788.187875573, abs=0.01)
+    assert est.drift_fit_ppm == pytest.approx(-28.017090186765994, abs=1e-6)
+    assert est.resets == 0 and est.best.rtt_us == 22000
+    assert est.max_change_us() == pytest.approx(7314.878631321713, abs=0.01)
+    assert est.max_dev_from_fit_us() == pytest.approx(3797.1683047330007, abs=0.01)
+
+
+def test_max_deviation_from_the_fitted_line_ignores_steady_drift():
+    est = ClockOffsetEstimator()
+    _drifting_link(est, ppm=-28.6, minutes=20)
+    assert est.spread_us() > 20_000  # the literal max-minus-min fails because of real drift
+    assert est.max_dev_from_fit_us() < 10_000
+    assert ClockOffsetEstimator().max_dev_from_fit_us() is None
+
+
+def test_an_empty_estimator_is_still_reused():
+    from brain.transport.link import Link
+    est = ClockOffsetEstimator()
+    assert len(est) == 0
+    assert Link(object(), p.BRAIN, clock=est).clock is est

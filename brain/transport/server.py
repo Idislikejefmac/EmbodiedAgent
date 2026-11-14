@@ -8,7 +8,6 @@ import secrets
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from http import HTTPStatus
 
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
@@ -26,7 +25,8 @@ MessageHandler = Callable[[Link, Received], Awaitable[None]]
 BRAIN_CAPABILITIES = ["event", "echo"]
 HANDLER_QUEUE = 256  # messages waiting for on_message; beyond this the body gets `busy`
 DIAGNOSTIC_EVENTS = {"echo_test_result"}  # only counters; logged in full. Other event data is not.
-MAX_PENDING_HANDSHAKES = 4  # connections not yet authenticated; more get HTTP 503
+MAX_PENDING_HANDSHAKES = 4  # connections not yet authenticated; a new one evicts the oldest
+FIRST_FRAME_TIMEOUT_S = 2.0  # a real body sends hello at once; idle sockets are dropped quickly
 PRE_AUTH_MAX_BYTES = 16 * 1024  # largest frame accepted before authentication (hello and auth are ~1 kB)
 MAX_FRAME_BYTES = p.MAX_BINARY_BYTES + p.BINARY_HEADER.size
 
@@ -41,8 +41,9 @@ class BrainServer:
     Other messages go to `on_message`, which runs in its own task per connection (in order), so a slow
     handler never delays heartbeats and a handler may await `link.request(...)`.
     Policy (section 1): one active body. A newly authenticated body replaces the previous one, which is
-    closed with code 4001. At most MAX_PENDING_HANDSHAKES unauthenticated connections at a time, each
-    limited to PRE_AUTH_MAX_BYTES per frame.
+    closed with code 4001. At most MAX_PENDING_HANDSHAKES unauthenticated connections at a time: a new
+    connection evicts the oldest pending one, so idle sockets cannot lock a real body out; the first frame
+    must arrive within FIRST_FRAME_TIMEOUT_S; frames before authentication are limited to PRE_AUTH_MAX_BYTES.
     """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8765, *, token: bytes,
@@ -61,11 +62,27 @@ class BrainServer:
         self.send_timeout_s = send_timeout_s
         self.boot_id = f"r-{secrets.token_hex(4)}"
         self.links: dict[str, Link] = {}  # at most one: the active body
-        self.pending_handshakes = 0
+        self._pending: OrderedDict[str, Link] = OrderedDict()  # handshakes in progress, oldest first
         self._clocks: OrderedDict[str, ClockOffsetEstimator] = OrderedDict()  # by body boot_id
         self._server: Server | None = None
 
+    @property
+    def pending_handshakes(self) -> int:
+        return len(self._pending)
+
+    @staticmethod
+    def check_library() -> None:
+        """The pre-authentication frame limit sets websockets' per-connection max_message_size, an attribute
+        of its protocol object (tested with websockets 17.4). Fail loudly if a websockets version lacks it,
+        instead of silently accepting 8 MiB frames from unauthenticated peers."""
+        from websockets.server import ServerProtocol
+
+        if not isinstance(getattr(ServerProtocol(), "max_message_size", None), int):
+            raise RuntimeError("this websockets version has no ServerProtocol.max_message_size; the brain cannot "
+                               "limit frames before authentication (tested with websockets 17.4)")
+
     async def start(self) -> BrainServer:
+        self.check_library()
         self._server = await serve(
             self._handle, self.host, self.port,
             max_size=MAX_FRAME_BYTES,
@@ -73,19 +90,12 @@ class BrainServer:
             ping_interval=None,  # liveness comes from protocol heartbeats
             compression=None,
             origins=[None],  # refuse any request with an Origin header: web pages may not act as a body
-            process_request=self._process_request,
         )
         self.port = self._server.sockets[0].getsockname()[1]
         log.info("listening on ws://%s:%d/ (protocol v%d, brain boot_id %s)", self.host, self.port,
                  p.PROTOCOL_VERSION, self.boot_id)
         return self
 
-    def _process_request(self, connection: ServerConnection, request):
-        if self.pending_handshakes >= MAX_PENDING_HANDSHAKES:
-            log.warning("refusing a connection from %s: %d handshakes already pending",
-                        connection.remote_address, self.pending_handshakes)
-            return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "too many pending handshakes\n")
-        return None
 
     async def stop(self) -> None:
         """Close every connection with 1001 (going away) and wait for the handlers to log their summaries."""
@@ -106,7 +116,9 @@ class BrainServer:
         """Keep the clock estimate across reconnects of the same body run (same boot_id)."""
         if boot_id is None:
             return ClockOffsetEstimator()
-        est = self._clocks.pop(boot_id, None) or ClockOffsetEstimator()
+        est = self._clocks.pop(boot_id, None)
+        if est is None:
+            est = ClockOffsetEstimator()
         self._clocks[boot_id] = est
         while len(self._clocks) > 8:
             self._clocks.popitem(last=False)
@@ -119,13 +131,17 @@ class BrainServer:
                     send_timeout_s=self.send_timeout_s)
         slog.info("connection from %s", ws.remote_address)
         dispatcher = None
-        self.pending_handshakes += 1
+        while len(self._pending) >= MAX_PENDING_HANDSHAKES:
+            old_id, old_link = self._pending.popitem(last=False)
+            slog.warning("evicting the oldest pending handshake %s (%d pending)", old_id, MAX_PENDING_HANDSHAKES)
+            old_link.abort("evicted: too many pending handshakes")
+        self._pending[session_id] = link
         ws.protocol.max_message_size = PRE_AUTH_MAX_BYTES
         try:
             try:
                 ok = await self._handshake(link, session_id)
             finally:
-                self.pending_handshakes -= 1
+                self._pending.pop(session_id, None)
             if not ok:
                 return
             ws.protocol.max_message_size = MAX_FRAME_BYTES
@@ -195,9 +211,10 @@ class BrainServer:
             return await asyncio.wait_for(link.recv(), max(0.0, deadline - loop.time()))
 
         try:
-            first = await next_message()
+            first = await asyncio.wait_for(link.recv(), FIRST_FRAME_TIMEOUT_S)
         except TimeoutError:
-            return await self._fail_handshake(link, p.ProtocolError("bad_sequence", "no hello within timeout"))
+            return await self._fail_handshake(link, p.ProtocolError(
+                "bad_sequence", f"no hello within {FIRST_FRAME_TIMEOUT_S:.0f} s"))
         except p.ProtocolError as e:
             return await self._fail_handshake(link, e)
         if first.type == "error":

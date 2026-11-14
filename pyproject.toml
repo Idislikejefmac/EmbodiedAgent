@@ -9,7 +9,7 @@ description = "Laptop-side brain for the Embodied Agent trial"
 requires-python = ">=3.13"  # 3.13: time.monotonic uses QueryPerformanceCounter on Windows (1 us, not 15.6 ms)
 dependencies = [
     "cryptography>=42",
-    "websockets>=15",
+    "websockets>=17.4",  # tested version; the server checks at start that its pre-auth frame limit works
     "jsonschema>=4.18",
 ]
 

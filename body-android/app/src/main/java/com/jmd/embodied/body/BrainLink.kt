@@ -260,6 +260,7 @@ object BrainLink {
         }
         phase = Phase.OPENING
         pendingHeader = null
+        pendingBrainHello = null
         transcript = mutableListOf()
         tickTask?.cancel(false)
         tickTask = null
@@ -582,17 +583,13 @@ object BrainLink {
     private fun onBrainHello(payload: JSONObject, raw: String) {
         val tok = token ?: return stopInternal("not paired", State.NOT_PAIRED)
         transcript.add(LinkAuth.digest(raw))
-        sessionId = payload.getString("session_id")
-        heartbeatMs = payload.optLong("heartbeat_ms", DEFAULT_HEARTBEAT_MS).coerceIn(100L, 60_000L)
-        livenessMs = payload.optLong("liveness_timeout_ms", DEFAULT_LIVENESS_MS).coerceIn(300L, 300_000L)
-        maxBinary = payload.optLong("max_binary_bytes", BinaryFrame.MAX_DATA.toLong()).coerceIn(0L, BinaryFrame.MAX_DATA.toLong())
-        pendingBrainBootId = payload.optString("boot_id").ifEmpty { null }
+        pendingBrainHello = payload  // applied only after the brain's proof checks out (onBrainAuth)
         authId = sendCritical("auth", JSONObject().put("mac", LinkAuth.proof(tok, "body", transcript))) ?: return
         transcript.add(LinkAuth.digest(lastSentText))
         phase = Phase.AUTH_SENT
     }
 
-    private var pendingBrainBootId: String? = null
+    private var pendingBrainHello: JSONObject? = null
 
     private fun onBrainAuth(id: Long, payload: JSONObject) {
         val tok = token ?: return stopInternal("not paired", State.NOT_PAIRED)
@@ -602,7 +599,13 @@ object BrainLink {
             sendError(Protocol.ProtocolException("unauthorized", "the brain failed authentication", true, id))
             return
         }
-        val bid = pendingBrainBootId
+        val hello = pendingBrainHello ?: return
+        pendingBrainHello = null
+        sessionId = hello.getString("session_id")
+        heartbeatMs = hello.optLong("heartbeat_ms", DEFAULT_HEARTBEAT_MS).coerceIn(100L, 60_000L)
+        livenessMs = hello.optLong("liveness_timeout_ms", DEFAULT_LIVENESS_MS).coerceIn(300L, 300_000L)
+        maxBinary = hello.optLong("max_binary_bytes", BinaryFrame.MAX_DATA.toLong()).coerceIn(0L, BinaryFrame.MAX_DATA.toLong())
+        val bid = hello.optString("boot_id").ifEmpty { null }
         if (bid == null || bid != brainBootId) {
             clock.clear()
             brainBootId = bid
@@ -629,8 +632,10 @@ object BrainLink {
     private fun logClockSummary() {
         if (clock.best == null) return
         val change = clock.maxChangeUs(sinceUs = sessionClockStartUs)
+        val dev = clock.maxDevFromFitUs(sinceUs = sessionClockStartUs)
         log("clock summary: samples=$heartbeatReplies max_change_60s_ms=${change?.let { "%.3f".format(it / 1000) } ?: "n/a (under 2 min)"} " +
-            "(limit 20, after 60 s warm-up) drift_ppm=${clock.driftFitPpm?.let { "%.1f".format(it) } ?: "none"} " +
+            "max_dev_from_fit_ms=${dev?.let { "%.3f".format(it / 1000) } ?: "n/a (under 2 min)"} " +
+            "(limits 20, after 60 s warm-up) drift_ppm=${clock.driftFitPpm?.let { "%.1f".format(it) } ?: "none"} " +
             "estimate_ms=${"%.3f".format(clock.estimateUs!! / 1000)} resets=${clock.resets}")
     }
 

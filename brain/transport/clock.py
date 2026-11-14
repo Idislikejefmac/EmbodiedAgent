@@ -37,12 +37,12 @@ class ClockOffsetEstimator:
     """
 
     def __init__(self, horizon: int = 900, aging_ppm: float = 50.0, fitted_aging_ppm: float = 10.0,
-                 history_cap: int = 50_000, bucket_s: float = 60.0):
+                 history_cap: int = 5_000, bucket_s: float = 60.0):
         self._samples: deque[OffsetSample] = deque(maxlen=horizon)  # 900 x 2 s = 30 minutes
         self.aging_ppm = aging_ppm
         self.fitted_aging_ppm = fitted_aging_ppm
         self.bucket_us = int(bucket_s * 1e6)
-        self.history: deque[tuple[int, float]] = deque(maxlen=history_cap)  # (local time, estimate)
+        self.history: deque[tuple[int, float]] = deque(maxlen=history_cap)  # (local time, estimate); 5,000 = 2.8 h, as on the body
         self.best: OffsetSample | None = None
         self.drift_fit_ppm: float | None = None
         self.count = 0
@@ -130,6 +130,26 @@ class ClockOffsetEstimator:
             seg = [e for _, e in h[i:j]]
             worst = max(worst, max(seg) - min(seg))
         return worst
+
+    def max_dev_from_fit_us(self, *, since_us: int = 0, warmup_s: float = 60.0) -> float | None:
+        """Largest |estimate - straight line| after `warmup_s`, where the line is the least-squares fit of the
+        estimate against time over that same period (so steady drift does not count, wander does).
+        None if there is under a minute of data after the warm-up."""
+        h = [(t, e) for t, e in self.history if t >= since_us]
+        if not h:
+            return None
+        start = h[0][0] + warmup_s * 1e6
+        h = [(t, e) for t, e in h if t >= start]
+        if len(h) < 3 or h[-1][0] - h[0][0] < 60e6:
+            return None
+        t0 = h[0][0]
+        n = len(h)
+        mx = sum(t - t0 for t, _ in h) / n
+        my = sum(e for _, e in h) / n
+        sxx = sum((t - t0 - mx) ** 2 for t, _ in h)
+        sxy = sum((t - t0 - mx) * (e - my) for t, e in h)
+        slope = sxy / sxx if sxx > 0 else 0.0
+        return max(abs(e - (my + slope * (t - t0 - mx))) for t, e in h)
 
     def spread_us(self, *, since_us: int = 0, skip: int = 0) -> float | None:
         """Max minus min of all estimates since `since_us` (includes real drift; for information only)."""
