@@ -7,7 +7,7 @@ A trial of a Claude agent with a body: first an Android phone, later possibly a 
 | Folder | What |
 | --- | --- |
 | `body-android/` | The Android app (Kotlin). The phone's eyes, ears, mouth and pose sensor |
-| `brain/` | The Python brain on the laptop. Body-agnostic; only `brain/body/phone.py` may mention the phone |
+| `brain/` | The Python brain on the laptop. Body-agnostic; only `brain/body/phone.py` may mention the phone. It reaches its body through the `Body` interface (`docs/adding_a_body.md`) |
 | `protocol/` | The body-to-brain WebSocket protocol |
 | `tools/` | Command-line tools (for example data migration) |
 | `docs/` | Design notes, gate records, privacy and migration docs |
@@ -27,7 +27,13 @@ Copy-Item .env.example .env     # then fill in keys; .env is git-ignored
 .\.venv\Scripts\python -m pytest -q
 ```
 
-The protocol tests check the schema, every example in `protocol/v0.md`, the binary frame layout, the server against a Python test body, and that the body's Kotlin allowlist matches the spec.
+The protocol tests check the schema, every example in `protocol/v0.md`, the binary frame layout, the server against a Python test body, and that the body's Kotlin allowlist matches the spec. The body tests run one shared contract (`tests/body_contract.py`) against the simulated body and against the phone body over loopback (no phone needed). The tool tests check the agent's tool schemas and that every request outside the allowlist is refused and logged. The whole suite runs under the egress guard, so no test can reach the network.
+
+Type checking (mypy, strict, over `brain/body`, `brain/agent` and `brain/egress.py`; also run by `tests/test_typing.py`):
+
+```powershell
+.\.venv\Scripts\python -m mypy
+```
 
 ## Run the brain
 
@@ -36,6 +42,16 @@ The protocol tests check the schema, every example in `protocol/v0.md`, the bina
 ```
 
 Prints the version, loads `config.toml`, and says which API keys are present or missing (never their values).
+
+## Check a body and the agent's tools
+
+```powershell
+.\.venv\Scripts\python -m brain body-check --body sim
+```
+
+Starts a body, calls every agent tool through the tool registry (the same path the agent loop uses) and tries the command-boundary requests ("delete the C drive", "read config.toml" and so on), which must all be refused. `--body sim` is a scripted body that needs no phone and no network; `--body phone` listens for the phone (press Connect in the app; `--wait 60` sets how long to wait; stop `serve` first, since both use the same port). Without `--body` it uses `config.toml` `[body] kind`.
+
+The agent has no tools except those listed in `brain/agent/tools.v0.json`; `docs/body_tools_egress_v0.md` describes the registry, the refusal format and the egress guard. The brain can only reach the hosts in `config.toml` `[egress]` and loopback ports it listens on itself: `brain/egress.py` refuses every other connection in the socket layer, removes proxy environment variables at start, and cannot be widened once installed.
 
 ## Run the brain server (protocol v0)
 
@@ -59,7 +75,7 @@ To check the server from the laptop alone, run a test body against it (1,000 ech
 .\.venv\Scripts\python -m brain probe --count 1000 --bytes 102400
 ```
 
-The probe connects as a body, so it replaces a connected phone (which then stops until Connect is pressed again).
+The probe connects as a body, so it replaces a connected phone (which then stops until Connect is pressed again). The egress guard lets it dial the loopback port it is given; `probe --host <another machine>` is refused unless that host and port are listed in `config.toml` `[egress]`.
 
 ## Build the Android app
 

@@ -14,11 +14,24 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "mypy>=1.13"]
 
 [tool.setuptools.packages.find]
 include = ["brain*"]
 
+[tool.setuptools.package-data]
+brain = ["agent/*.json"]  # the tool allowlist ships with the code
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.mypy]
+# Run with:  python -m mypy   (checks the packages below in strict mode; tests/test_typing.py runs it too)
+python_version = "3.13"
+strict = true
+files = ["brain/body", "brain/agent", "brain/egress.py"]
+follow_imports = "silent"  # brain/transport and brain/__main__ are imported but not yet checked strictly
+
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true

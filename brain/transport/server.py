@@ -21,6 +21,7 @@ from .link import Link, Received
 log = logging.getLogger("brain.transport.server")
 
 MessageHandler = Callable[[Link, Received], Awaitable[None]]
+LinkHandler = Callable[[Link], None]
 
 BRAIN_CAPABILITIES = ["event", "echo"]
 HANDLER_QUEUE = 256  # messages waiting for on_message; beyond this the body gets `busy`
@@ -41,13 +42,16 @@ class BrainServer:
     Other messages go to `on_message`, which runs in its own task per connection (in order), so a slow
     handler never delays heartbeats and a handler may await `link.request(...)`.
     Policy (section 1): one active body. A newly authenticated body replaces the previous one, which is
-    closed with code 4001. At most MAX_PENDING_HANDSHAKES unauthenticated connections at a time: a new
+    closed with code 4001. `on_connect` is called (synchronously) when a body has authenticated and become
+    the active one, and `on_disconnect` when that connection ends; a replaced body's `on_disconnect` comes
+    after its replacement's `on_connect`. At most MAX_PENDING_HANDSHAKES unauthenticated connections at a time: a new
     connection evicts the oldest pending one, so idle sockets cannot lock a real body out; the first frame
     must arrive within FIRST_FRAME_TIMEOUT_S; frames before authentication are limited to PRE_AUTH_MAX_BYTES.
     """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8765, *, token: bytes,
                  on_message: MessageHandler | None = None,
+                 on_connect: LinkHandler | None = None, on_disconnect: LinkHandler | None = None,
                  heartbeat_s: float = p.HEARTBEAT_MS / 1000, liveness_s: float = p.LIVENESS_TIMEOUT_MS / 1000,
                  hello_timeout_s: float = 10.0, send_timeout_s: float = 30.0):
         if len(token) < 16:
@@ -56,6 +60,8 @@ class BrainServer:
         self.port = port
         self._token = token
         self.on_message = on_message
+        self.on_connect = on_connect
+        self.on_disconnect = on_disconnect
         self.heartbeat_s = heartbeat_s
         self.liveness_s = liveness_s
         self.hello_timeout_s = hello_timeout_s
@@ -131,6 +137,7 @@ class BrainServer:
                     send_timeout_s=self.send_timeout_s)
         slog.info("connection from %s", ws.remote_address)
         dispatcher = None
+        activated = False
         while len(self._pending) >= MAX_PENDING_HANDSHAKES:
             old_id, old_link = self._pending.popitem(last=False)
             slog.warning("evicting the oldest pending handshake %s (%d pending)", old_id, MAX_PENDING_HANDSHAKES)
@@ -147,6 +154,8 @@ class BrainServer:
             ws.protocol.max_message_size = MAX_FRAME_BYTES
             old = list(self.links.items())
             self.links = {session_id: link}
+            activated = True
+            self._notify(self.on_connect, link)
             for old_id, old_link in old:
                 slog.info("replacing the previous body connection %s", old_id)
                 await old_link.close(p.CLOSE_REPLACED, "replaced by a newer body connection")
@@ -181,12 +190,22 @@ class BrainServer:
             link.shutdown()
             if self.links.get(session_id) is link:
                 self.links.pop(session_id)
+            if activated:
+                self._notify(self.on_disconnect, link)
             st = link.stats
             slog.info("session end%s: rx=%d tx=%d id_gaps=%d echo_answered=%d echo_crc_errors=%d refused=%s",
                       f" ({link.closed_reason})" if link.closed_reason else "", st.rx_messages, st.tx_messages,
                       st.id_gaps, st.echo_answered, st.echo_crc_errors, st.refused)
             if link.authenticated:
                 slog.info(link.clock_summary())
+
+    @staticmethod
+    def _notify(callback: LinkHandler | None, link: Link) -> None:
+        if callback is not None:
+            try:
+                callback(link)
+            except Exception:  # a listener bug must not take the session down
+                link.log.exception("link listener failed")
 
     async def _fail_handshake(self, link: Link, err: p.ProtocolError) -> bool:
         err.fatal = True

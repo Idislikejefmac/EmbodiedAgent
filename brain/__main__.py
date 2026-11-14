@@ -1,9 +1,16 @@
-"""python -m brain [info|serve|probe|pair].
+"""python -m brain [info|serve|probe|pair|body-check].
 
 info (default): print the version, load config, and report which keys exist.
 serve: run the protocol v0 WebSocket server (and keep the phone link up unless --no-phone-link).
 probe: connect as a test body and run the echo test against a running server.
 pair: give the phone body this brain's link token (debug builds of the body only).
+body-check: start a body (--body sim or phone), call every agent tool through the registry, and try the
+    command-boundary requests. With --body sim it needs no phone and no network.
+
+Every command runs under the egress guard (brain/egress.py): only the destinations in config.toml
+[egress] can be reached, plus loopback ports this process listens on. `probe` may also dial the
+loopback port it is given; `probe --host <another machine>` is refused unless that host and port are
+in [egress].
 """
 
 from __future__ import annotations
@@ -127,13 +134,7 @@ async def _keep_phone_link(port: int, log: logging.Logger) -> None:
     """Re-run the phone's reverse port forward every minute, so a dropped phone link heals by itself."""
     from .body import phone  # the wiring point may name the phone body; transport stays agnostic
 
-    last = None
-    while True:
-        ok, message = await asyncio.to_thread(phone.ensure_link, port)
-        if ok != last:
-            (log.info if ok else log.warning)(message)
-            last = ok
-        await asyncio.sleep(PHONE_LINK_RECHECK_S)
+    await phone.keep_link(port, log, PHONE_LINK_RECHECK_S)
 
 
 def serve(args, config: dict) -> int:
@@ -199,7 +200,70 @@ def pair(args, config: dict) -> int:
     return 0 if ok else 1
 
 
+BOUNDARY_REQUESTS = (  # what the app channel must never get (plan: "Command boundary"); each is refused
+    ("delete the C drive", {}),
+    ("delete_files", {"path": "C:\\"}),
+    ("read config.toml", {}),
+    ("read_file", {"path": "config.toml"}),
+    ("list the documents folder", {}),
+    ("what is in the delete bin?", {}),
+    ("run this command", {}),
+    ("run_command", {"command": "whoami"}),
+)
+
+
+async def _body_check(body, wait_s: float) -> int:
+    """Drive a body through the tool registry exactly as the agent loop will. Prints one line per call."""
+    from .agent.body_tools import register_body_tools
+    from .agent.tools import APP, CONSOLE, ToolRegistry
+
+    registry = ToolRegistry()
+    register_body_tools(registry, body)
+    failures = 0
+    async with body:
+        print(f"body: {body.name}; waiting up to {wait_s:g} s for it to connect")
+        if not await body.wait_connected(wait_s):
+            print("body: NOT CONNECTED (status is still asked for, and must say so)")
+        print(f"body: capabilities {sorted(c.value for c in body.capabilities)}; clock {body.clock_sync().to_json()}")
+        calls = (("get_body_status", {}), ("get_pose", {}), ("capture_image", {"reason": "body check"}),
+                 ("speak", {"text": "Body check."}), ("stop", {}), ("listen", {}), ("who_is_present", {}),
+                 ("navigate_to", {"waypoint": "kitchen"}))
+        for name, args in calls:
+            r = await registry.call(name, args, CONSOLE)
+            shown = r.content if r.ok else f"{r.message}{f' ({r.detail})' if r.detail else ''}"
+            print(f"tool {name}: {r.status}/{r.code} {shown}")
+            failures += r.status in ("error", "refused") or (name == "get_body_status" and not r.ok)
+        for name, args in BOUNDARY_REQUESTS:
+            r = await registry.call(name, args, APP)
+            print(f"boundary {name!r}: {r.status}/{r.code}")
+            failures += r.status != "refused"
+    print(f"phone body module loaded: {'brain.body.phone' in sys.modules}")
+    print(f"body-check: {'ok' if not failures else f'{failures} problem(s)'}")
+    return 0 if not failures else 1
+
+
+def body_check(args, config: dict) -> int:
+    from .body import create_body
+
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s", stream=sys.stdout)
+    kind = args.body or config.get("body", {}).get("kind", "sim")
+    token = None
+    if kind == "phone":
+        token, problem = load_token(config)
+        if token is None:
+            print(problem)
+            return 2
+    try:
+        body = create_body(kind, config, token=token)
+    except ValueError as e:
+        print(e)
+        return 2
+    return asyncio.run(_body_check(body, args.wait))
+
+
 def main(argv: list[str] | None = None) -> int:
+    from .egress import EgressPolicy, install_guard
+
     config = load_config()
     net = config.get("network", {})
     parser = argparse.ArgumentParser(prog="python -m brain")
@@ -221,7 +285,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("-v", "--verbose", action="store_true", help="debug logging (every clock sample, payloads)")
     sub.choices["probe"].add_argument("--count", type=int, default=1000)
     sub.choices["probe"].add_argument("--bytes", type=int, default=100 * 1024)
+    bc = sub.add_parser("body-check", help="start a body, call every agent tool, try the boundary requests")
+    bc.add_argument("--body", choices=("sim", "phone"), default=None, help="default: config.toml [body] kind")
+    bc.add_argument("--wait", type=float, default=30.0, help="seconds to wait for the body to connect")
     args = parser.parse_args(argv)
+    # The guard goes on before anything else runs. Only `probe` dials a port of another local process.
+    probe_port = {args.port} if args.cmd == "probe" and is_loopback(args.host) and 1 <= args.port <= 65535 else set()
+    install_guard(EgressPolicy.from_config(config, local_ports=probe_port))
+    if args.cmd == "body-check":
+        return body_check(args, config)
     if args.cmd == "serve":
         return serve(args, config)
     if args.cmd == "probe":

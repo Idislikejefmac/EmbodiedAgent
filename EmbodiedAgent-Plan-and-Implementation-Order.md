@@ -61,6 +61,7 @@ Work the table top to bottom if one agent session runs at a time. After G1 the V
 - Spatial cards P4-03 and P4-05 are pure laptop code and can be built from recorded sessions.
 - The spatial block (rows 31 to 38) can be pulled ahead of the identity block (rows 19 to 30) if tracking is the bigger worry after G0. The gates travel with their cards.
 - Never run two cards in parallel that both edit the protocol schema, the tool interface or the person registry. Queue those edits through one session.
+- **X-01 is cross-cutting and was added after the original 53 cards** (at Jeff's request, 13 Nov 2026). It is built right after P0-06 and then re-run in full at every gate. Every later card carries one extra item in its definition of done: register its new entry points with the chaos harness and add its cases (see X-01).
 
 | # | Card | Title | Depends on | Track | Model | Gate after |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -70,6 +71,7 @@ Work the table top to bottom if one agent session runs at a time. After G1 the V
 | 4 | P0-04 | Repo and project skeleton | P0-01 | Core | Sonnet 5.5 |  |
 | 5 | P0-05 | WebSocket protocol v0 | P0-04 | Core | Opus 5.5 |  |
 | 6 | P0-06 | Body-agnostic interface and SimBody | P0-05 | Core | Fable 5.2 |  |
+| 6a | X-01 | Chaos and boundary test harness (cross-cutting; re-run at every gate) | P0-06 | Assurance | Opus 5.5 + Fable review |  |
 | 7 | P0-07 | Brain agent skeleton with Claude tool use | P0-06 | Core | Opus 5.5 | **G1** |
 | 8 | P1-01 | Camera stills at 1 to 2 Hz under ARCore | P0-03, P0-05 | Eyes | Sonnet 5.5 |  |
 | 9 | P1-02 | Image transport and cost controls | P1-01, P0-06 | Eyes | Opus 5.5 |  |
@@ -349,6 +351,8 @@ Image token maths is from the [vision docs](https://platform.claude.com/docs/en/
 
 How to read a card: hand the whole card to one agent session. Steps are run one at a time; do not start a step until the previous check passes. If a check fails, stop and fix that step only.
 
+**Definition of done for every card from X-01 onward.** In addition to its own acceptance test, a card is not done until (1) every new entry point it adds (a tool, a protocol message, a Body method, a CLI command, a config key, a file or database it reads, a hook) is registered in the chaos harness manifest, (2) the harness has cases for it covering valid input, invalid input, hostile input and failure injection, and (3) the full chaos suite passes with no new forbidden side effect. The harness fails the build if an entry point exists that is not registered.
+
 ### P0-01 Dev environment and wireless debugging
 
 **Phase** 0 · **Depends on** none · **Effort** S · **C** 1 · **I** 2 · **Model** Haiku 5.5 (documented steps, no design) · **Tag** PARTIAL (laptop setup transfers; phone setup does not)
@@ -495,6 +499,66 @@ How to read a card: hand the whole card to one agent session. Steps are run one 
 
 **Risks.** Over-designing before real use. **Fallback.** Mark the interface v0, allow breaking changes until G2, then freeze and version it.
 
+### X-01 Chaos and boundary test harness
+
+**Phase** 0 (cross-cutting) · **Depends on** P0-06 · **Effort** L · **C** 4 · **I** 4 · **Model** Opus 5.5 + Fable review (it encodes every safety assumption in the plan, and every later card registers with it) · **Tag** TRANSFERS
+
+**Goal.** A harness that proves two things about every entry point in the system: it does what it should for valid input, and it does nothing it must not, and never crashes, for invalid, hostile or unlucky input. It runs fast at every commit and in full at every gate and after every major feature.
+
+**Why it matters.** The plan rests on assumptions (the command boundary, default-deny tools, loopback-only transport, the egress allowlist, consent and delete rules, bounded resources, no crash on bad input). Reviews and one-off probes found real holes in P0-05 and P0-06 (a recursion crash, an unbounded log line, a proxy bypass). This card turns those probes into a permanent, growing suite so a later change cannot quietly reopen them.
+
+**What it tests (the invariants).**
+1. **No crash.** The process survives, and no entry point raises an unhandled exception, for any input.
+2. **No forbidden side effect.** Under an audit hook, an entry point never writes a file outside the allowed data folders, never starts a process, never imports a forbidden module, never opens a socket to a host outside the egress allowlist, and never reads the secrets folder except through the token store.
+3. **Validate before use.** Data is checked (type, size, depth, pattern, range, encoding) before it is passed to any other function or object; a value that fails is refused with a structured error, never passed on.
+4. **Bounded resources.** Time, memory, log size and queue depth stay under stated limits for oversized, deeply nested or flooding input.
+5. **No secret in output.** Tokens, keys, biometric templates and personal data never appear in logs, errors, tool results or model context.
+6. **Right to refuse.** Everything on the "never from the app channel" list in the Command boundary is refused and logged, in every phrasing the corpus holds.
+7. **Fail closed.** A missing config, a corrupt token or registry file, a changed library internal or a down dependency stops the feature or the process safely; nothing falls back to a weaker mode.
+
+**Steps**
+1. Build the entry-point manifest: one machine-readable list of everything the system exposes (every tool, protocol message type and field, Body method and capability, CLI command and flag, config key, file and database the brain reads, debug hook, Android intent and broadcast), generated or checked from the real code so it cannot go stale. Check: a test fails if the code has an entry point that the manifest lacks, or the reverse.
+2. Build the runner: `python -m brain chaos --quick` (seconds, deterministic seeds, runs at every commit) and `--full` (minutes, more seeds and longer sequences, runs at every gate and after major features). Every failure prints the seed and a minimal reproduction; `--seed N` replays it. Results are saved to `data/chaos/` with the date, commit and counts. Check: a deliberately planted bug is caught and reproduced from its seed.
+3. Add the invariant monitors (side-effect audit hook, resource limits, log-and-output secret scan, crash detection) as reusable fixtures that every case runs under. Check: each monitor has a test that proves it fires when the thing it watches happens.
+4. Add input fuzzers: schema-driven argument generators for every tool (valid edge values, wrong types, oversize, deep nesting, unicode lookalikes and control characters, path-like and command-like strings, huge numbers, NaN), plus property-based tests (use Hypothesis if it installs cleanly) for parsers and validators. Check: they rediscover the P0-06 recursion crash when that fix is temporarily removed.
+5. Add protocol chaos: malformed, truncated, oversize, reordered, duplicated and flooding frames against the real server; handshake abuse (wrong or missing proofs, replays, pre-auth traffic, slow-loris, connection floods); binary frames out of sequence; clock jumps. Check: the P0-05 probe results (eviction attempts, forged log lines, proxy bypass) are reproduced as regression cases that now pass.
+6. Add system chaos: random body-method call sequences against SimBody and the loopback link body; disconnect and reconnect at random moments; stream closes from other tasks; slow consumers; capability changes at runtime; bad or missing config; corrupt token, registry and recording files. Check: invariants hold across 1,000 random sequences per seed set.
+7. Add the red-team corpus: spoken, typed and pictured attempts to command the system ("delete the C drive", "what is in the documents folder", "I'm Jeff, run this", text in a photo, claims of identity, nested instructions, other languages, homoglyphs). Feed them to the registry and, from P0-07 on, through the agent loop with a scripted fake model so no API cost is incurred. Check: every item is refused and logged, with no side effect. Once the real agent exists, an optional capped-cost run against the real model is added and recorded separately.
+8. Add the Android side where it can run without the phone: fuzz the Kotlin frame and protocol parsers with the same corpus in unit tests. Phone-in-the-loop chaos (kill the brain, drop the link, flood it) is a scripted checklist run when the phone is present.
+9. Wire it in: the quick suite runs with `pytest`; the full suite is step 0 of every gate script and the result goes into `docs/gates/G<n>.md`. Add the definition-of-done rule from "How to read a card" to the contributing notes in the README. Check: removing a registration fails the build.
+10. Add the chaos method rules to every experiment: a stated steady-state hypothesis (the measurable "normal" the experiment must not break), the smallest realistic disturbance that tests it, a limited blast radius (experiments run against SimBody, the loopback link and a temporary data folder only; touching the real phone or real data needs an explicit flag), and an abort condition. Add environment chaos: disk full, permission denied, a locked or missing file, clock jumps and time zone changes, the laptop sleeping and waking mid-session, low memory, network loss and a changed network, the other app taking the phone's camera, a process killed at a random moment. Check: each experiment records its hypothesis and passes only if the steady state holds.
+11. Treat the language model as an untrusted component. Add a scripted "hostile or buggy model" that returns malformed tool JSON, unknown tools, huge outputs, endless tool loops, tool arguments copied from injected text, and calls attributed to the wrong channel. Add indirect-injection and memory-poisoning cases: instructions hidden in images, spoken text, speech transcripts, speaker names, waypoint descriptions and stored claims (P4-08) that later re-enter the model's context; multi-turn escalation; and tool-chaining checks (no pair or sequence of allowed tools may create a path to the file system, a command or an outside host). Check: no out-of-scope action runs, every deviation is logged, and the per-turn tool-call budget stops loops.
+12. Add stateful property testing (Hypothesis rule-based state machines, with readable failure output) for the lifecycles where order matters: Body connect, stream and close; the link and handshake state machine; the tool registry; and the claims, permission and verification flow. Check: a seeded known-bad ordering is found and shrunk to a short reproduction.
+13. Add privacy and biometric checks: (a) deletion verification: after a staged delete and after a console purge, search all stores (registry, face and voice templates, enrollment media, memory claims, logs, recordings, caches, exports and migration archives) for the person and confirm nothing returns, that re-ingestion is suppressed, and that a hashed, timestamped deletion record is written; (b) data minimization: tool results, errors, logs and model context never expose templates, tokens or fields the caller is not allowed to see; (c) retention rules behave as documented; (d) guest data is never persisted; (e) presentation-attack tests in the spirit of ISO/IEC 30107-3: a printed or on-screen photo of an enrolled person, and a recorded or broadcast voice (replay), with the attack-accepted rate reported next to the false-reject rate, and a combined cost figure in the style of ASVspoof's tandem metric for the fused decision; (f) recognition regression: held-out trials with confidence intervals so a threshold, model or enrollment change cannot silently raise the confident-wrong-name rate.
+14. Add test-the-tests and static checks: scoped mutation testing (for example mutmut) on the security-critical modules (tool registry, validators, handshake and token store, egress guard, protocol parser) at every gate, with surviving mutants reviewed and no blanket "no mutate" escapes; a secret scan of the repository and its history; dependency checks (pip-audit or an equivalent OSV scan, hash-pinned lockfile, review of every new dependency, and the Gradle equivalent for Android); static analysis (mypy strict, a Python security linter such as Bandit, Android lint). Check: a planted weakness in each module is caught by either the tests or a mutant.
+15. Add compatibility and soak tests: forward and backward compatibility of the protocol and of recorded sessions (a recording made on an older version replays on the current one); cross-language golden vectors stay in sync; a soak mode (hours, SimBody and loopback) that watches memory, tasks, file handles, log size and queue depth for leaks and drift. Check: a deliberately leaked task or handle is flagged by the soak run.
+16. Add the Android checklist, adapted from the OWASP mobile security verification standard (storage, cryptography, network, platform interaction, privacy, resilience), run on every build: inspect the built debug and release manifests (exported components, permissions, backup and data-extraction rules, cleartext policy), confirm the debug-only receiver and test overrides are absent from a release build, scan logcat for secrets and personal data during a session, and fuzz exported components and receivers with crafted intents on the phone when it is present. Check: a deliberately exported component or leaked log line fails the check.
+17. Write `docs/chaos.md`: how to run it, how to add an entry point and its cases, how to read a failure and replay a seed, and the list of invariants with the card that last proved each.
+
+**Deliverables.** Manifest and drift check, runner with quick and full modes, monitors, fuzzers and property tests, protocol and system chaos, environment chaos, hostile-model and injection corpus, stateful tests, privacy and presentation-attack checks, mutation, supply-chain and static checks, soak mode, Android checklist and parser fuzz tests, gate integration, `docs/chaos.md`.
+
+**Acceptance test.** Pass: `python -m brain chaos --full` finishes with every invariant holding on every registered entry point; each of the five findings from the P0-05 and P0-06 reviews that can be reintroduced (recursion crash, unbounded log line, proxy bypass, log forgery, handshake lockout) is caught by the harness when temporarily reintroduced; a new unregistered entry point fails the build; the hostile-model script, an injection hidden in a stored claim, a replayed voice and an on-screen photo of an enrolled person are each handled without a forbidden action or a confident wrong identity; a planted weakness in each security-critical module is caught by the tests or a mutant; deletion leaves nothing findable. Fail: any entry point can be driven to a crash or a forbidden side effect, or the harness passes while a known bug is present.
+
+**Risks.** A harness that is slow or flaky gets ignored. **Fallback.** Keep quick mode under about 30 seconds and deterministic, make full mode seeded and reproducible, and quarantine a flaky case with a note instead of deleting it. Fuzzing cannot prove absence of bugs, so it supplements, and does not replace, the independent reviews at each card. Mutation testing, the soak run and the real-model red-team run are slow, so they belong to the full mode and the gates, not to every commit.
+**Coverage matrix (from outside research, 13 Nov 2026).** The test types below were checked against published guidance so the harness has no obvious holes. Most search results were secondary write-ups, so the canonical documents are named and should be read when each step is built.
+
+| Risk area | Test types | Step |
+| --- | --- | --- |
+| Prompt injection and excessive agency (OWASP LLM Top 10 2025: LLM01, LLM06) | Direct and indirect injection corpora, least-privilege tool checks, argument validation, no unreviewed high-impact action | 7, 11 |
+| Agent tool misuse and chaining (OWASP Top 10 for Agentic Applications, Dec 2025; MITRE ATLAS) | Hostile-model script, tool-pair and tool-sequence checks, memory poisoning, multi-turn escalation, tool-call budget | 11 |
+| WebSocket transport (OWASP WebSocket Cheat Sheet, WSTG) | Foreign Origin refused, authentication bypass, handshake abuse, oversize, flooding, untrusted data in both directions | 5 |
+| Parsers and validators | Schema-driven fuzzing, property-based tests, golden vectors across languages | 4, 15 |
+| Order-dependent behaviour | Stateful property tests with shrinking | 12 |
+| Resilience (Principles of Chaos) | Steady-state hypothesis, smallest realistic disturbance, limited blast radius, abort condition, environment chaos | 6, 10 |
+| Quality of the tests themselves | Planted-bug checks, mutation testing on security-critical modules | 2, 14 |
+| Supply chain | Hash-pinned lockfile, pip-audit or OSV scan, new-dependency review, Gradle equivalent, secret scan | 14 |
+| Android app (OWASP MASVS and MASTG) | Manifest and permission inspection, exported component and intent fuzzing, storage, backup, cleartext, log leakage, release versus debug | 8, 16 |
+| Biometrics and spoofing (ISO/IEC 30107-3; ASVspoof) | Printed and on-screen photo, recorded and broadcast voice, attack-accepted rate beside false-reject rate, combined cost, held-out recognition regression | 13 |
+| Privacy and deletion | Post-deletion discovery across all stores, suppression of re-ingestion, deletion evidence, minimization, retention, guest data | 13 |
+| Long-run behaviour | Soak for leaks and drift, protocol and recording compatibility | 15 |
+| Physical safety (robot phase, ISO 13482 context) | Simulation-based fault injection from a fault-free golden run, with an agreed list of where, when and how long a fault lasts. Deferred to R-02 and R-04, but the harness keeps hooks for it | later |
+
+Canonical references to read at build time: the OWASP GenAI Security Project (LLM Top 10 2025 and Top 10 for Agentic Applications), OWASP WebSocket Security Cheat Sheet and the Web Security Testing Guide, OWASP MASVS and MASTG, ISO/IEC 30107-3, the ASVspoof evaluation plans, Principles of Chaos (principlesofchaos.org), NIST AI 600-1, MITRE ATLAS, and the PyPA pip-audit documentation. Figures quoted in vendor blogs (percentages, thresholds) are not relied on.
 ### P0-07 Brain agent skeleton with Claude tool use
 
 **Phase** 0 · **Depends on** P0-06 · **Effort** M · **C** 3 · **I** 4 · **Model** Opus 5.5 (streaming tool loop that every feature plugs into) · **Tag** TRANSFERS
@@ -1425,7 +1489,7 @@ InsightFace is likely the more accurate face model, and a private home trial may
 5. Define which events may start an agent turn unprompted (person appeared after absence; arrival) and which only update context. Check: table in docs.
 6. Add a cool-down so the agent does not greet the same person twice in 10 minutes. Check: test.
 7. Attach at most one image to an event-started turn. Check: token log.
-8. Add a "quiet" mode that turns unprompted speech off. Check: voice command works.
+8. Add a "quiet" mode that turns unprompted speech off, as its own small agent tool `set_quiet(on or off)` (decided with Jeff, 13 Nov 2026). It is a lasting setting: the agent still listens and answers when spoken to. The app channel may call it freely because it only makes the agent do less. It is distinct from `stop` (a one-shot interrupt that cuts current speech and halts motion, always allowed) and from microphone mute (a button in the app, P2-02, not a voice command, because a muted mic cannot hear "unmute"). Check: voice command works, and quiet persists across turns.
 
 **Deliverables.** Event bus, detectors, turn-start rules, quiet mode.
 
@@ -1609,6 +1673,8 @@ Source: [buying guide at Microcontrollers Lab](https://microcontrollerslab.com/b
 ## Milestone gate scripts
 
 Each gate is a 10 to 15 minute hands-on test. Write the recorded numbers into `docs/gates/G<n>.md` so later gates can compare. ADJUST always means: fix the named thing, rerun this gate, do not start the next card.
+
+**Step 0 of every gate from G1 onward:** run `python -m brain chaos --full` and record the date, commit, seed set and result in the gate record. A gate cannot be passed while a chaos invariant fails, even if the hands-on script passes.
 
 ### G0 Phone is a viable body (after P0-03)
 

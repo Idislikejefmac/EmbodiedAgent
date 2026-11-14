@@ -5,6 +5,16 @@
 host = "127.0.0.1"
 port = 8765
 
+[body]
+# Which body the brain drives: "sim" (a scripted body; needs no hardware) or "phone".
+kind = "sim"
+
+# [body.sim]
+# Folders of test media for the sim body, relative to the repo. Without them it uses built-in
+# synthetic pictures and tones.
+# image_dir = "data/sim/images"
+# audio_dir = "data/sim/audio"
+
 [models]
 live_conversation = "claude-haiku-5-5"
 careful_looking = "claude-sonnet-5-5"
@@ -17,7 +27,9 @@ daily_usd = 2.00
 
 [egress]
 # Default deny: the only outside destinations the brain may contact. Jeff edits this list.
-# The speech vendor is added here when chosen (card P2-04).
+# Exact host names, optionally "host:port" (port 443 otherwise); no wildcards. Loopback (the link to
+# the body) is always allowed and is not listed. Enforced in brain/egress.py for every socket the
+# brain opens. The speech vendor is added here when chosen (card P2-04).
 allowed_hosts = ["api.anthropic.com"]
 
 [paths]
