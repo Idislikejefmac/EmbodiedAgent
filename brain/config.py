@@ -87,6 +87,8 @@ class ModelsConfig:
     live_conversation: str = "claude-haiku-5-5"
     careful_looking: str = "claude-sonnet-5-5"
     offline: str = "claude-opus-5-5"
+    # Jeff's consent to real, paid model calls (`chat --live`). Off by default: without it the live loop refuses.
+    allow_live_calls: bool = False
 
 
 @dataclass(frozen=True)
@@ -222,7 +224,8 @@ def _hosts(v: object) -> tuple[str, ...]:
 SCHEMA: dict[str, dict[str, object]] = {
     "network": {"host": _text(CONFIG_TEXT_MAX_CHARS), "port": _whole(PORT_MIN, PORT_MAX)},
     "body": {"kind": _choice(BODY_KINDS), "sim": {"image_dir": _path_text, "audio_dir": _path_text}},
-    "models": {k: _text(MODEL_NAME_MAX_CHARS) for k in ("live_conversation", "careful_looking", "offline")},
+    "models": {**{k: _text(MODEL_NAME_MAX_CHARS) for k in ("live_conversation", "careful_looking", "offline")},
+               "allow_live_calls": _flag},
     "caps": {"session_usd": _money, "daily_usd": _money, "hard_stop_usd": _money,
              "requests_per_hour": _whole(1, LLM_REQUESTS_PER_HOUR_MAX), "max_tokens": _whole(1, OUTPUT_TOKENS_SANITY_MAX)},
     "egress": {"allowed_hosts": _hosts},
@@ -333,7 +336,8 @@ def parse_config(raw: Mapping[str, object], *, source: str = "config", base: Pat
         body=BodyConfig(get(("body", "kind"), BodyConfig.kind),
                         SimBodyConfig(folder(("body", "sim", "image_dir")), folder(("body", "sim", "audio_dir")))),
         models=ModelsConfig(get(("models", "live_conversation"), m.live_conversation),
-                            get(("models", "careful_looking"), m.careful_looking), get(("models", "offline"), m.offline)),
+                            get(("models", "careful_looking"), m.careful_looking), get(("models", "offline"), m.offline),
+                            get(("models", "allow_live_calls"), m.allow_live_calls)),
         caps=CapsConfig(get(("caps", "session_usd"), d.session_usd), get(("caps", "daily_usd"), d.daily_usd),
                         get(("caps", "hard_stop_usd"), d.hard_stop_usd),
                         get(("caps", "requests_per_hour"), d.requests_per_hour), get(("caps", "max_tokens"), d.max_tokens)),

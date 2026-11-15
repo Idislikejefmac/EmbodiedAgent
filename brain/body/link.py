@@ -5,8 +5,9 @@ turn into protocol requests. Nothing here knows what kind of device is on the ot
 body subclasses it only to add its own link setup (see the phone body).
 
 Built so far (card P0-06): status (the `get_status` command), events (the `event` message, plus
-`link_state` raised here when a body connects or drops), stop, and the clock offset. Every other method
-raises NotYetImplemented, naming the card that builds it; the capability set is therefore empty.
+`link_state` raised here when a body connects or drops), stop, and the clock offset. Card P0-07 adds
+speak_text (the `speak_local` message), present only when the connected body offers `speak_local` in its
+hello. Every other method raises NotYetImplemented, naming the card that builds it.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from ..transport.clock import ClockOffsetEstimator
 from ..transport.link import Link, LinkClosed, Received, RequestError
 from ..transport.protocol import now_us
 from ..transport.server import DIAGNOSTIC_EVENTS, BrainServer
-from .base import Body, BodyUnavailable
+from .base import Body, BodyError, BodyTimeout, BodyUnavailable
 from .streams import BodyStream, Fanout
 from .types import (ADAPTER_EVENT_NAMES, AudioChunk, BodyEvent, BodyStatus, Capability, ClockSync, Image, NavGoal,
                     Pose)
@@ -65,7 +66,13 @@ class LinkBody(Body):
 
     @property
     def capabilities(self) -> frozenset[Capability]:
-        return frozenset()  # none of the gated methods is built over the link yet
+        # Only speak_text is built over the link (card P0-07, `speak_local`), and only when the connected body
+        # says in its hello that it can speak. Every other gated method is not built over the link yet.
+        link = self._link
+        offered = (link.peer_hello or {}).get("capabilities") if link is not None else None
+        if isinstance(offered, list) and "speak_local" in offered:
+            return frozenset({Capability.SPEAK_TEXT})
+        return frozenset()
 
     @property
     def connected(self) -> bool:
@@ -116,7 +123,7 @@ class LinkBody(Body):
         log.info("body connected: capabilities=%s commands=%s", short_items(caps, len(caps)),
                  short_items(cmds, len(cmds)))
         obs.emit("body.link", "body connected", body=self._name, connected=True)
-        obs.emit("body.capabilities", "no gated method is built over the link yet", body=self._name,
+        obs.emit("body.capabilities", "gated methods available over the link", body=self._name,
                  connected=True, capabilities=sorted(c.value for c in self.capabilities))
         self._events.publish(BodyEvent("link_state", {"connected": True}, now_us(), source="adapter"))
 
@@ -217,8 +224,30 @@ class LinkBody(Body):
         raise AssertionError("unreachable")  # so it cannot silently succeed once the capability is listed
 
     async def speak_text(self, text: str, *, utterance_id: str, interrupt: bool = False) -> None:
-        self.require(Capability.SPEAK_TEXT, not_built="speak_local over the link is card P0-07")
-        raise AssertionError("unreachable")
+        """Send `speak_local` (protocol/v0.md 4.9) and wait for the body's ack. The body's own text-to-speech
+        speaks it; the text is never interpreted. Present only when the body offers `speak_local` (the body
+        side is card P0-07 step 5)."""
+        self.require(Capability.SPEAK_TEXT, not_built="the body has not offered speak_local (card P0-07 step 5)")
+        if not isinstance(text, str) or not text or not isinstance(utterance_id, str) or not isinstance(interrupt, bool):
+            raise ValueError("speak_text needs non-empty text, an utterance id and a true/false interrupt")
+        link = self._link
+        if link is None:
+            raise BodyUnavailable("no body is connected")
+        obs.emit("body.speak", "speak_local sent", body=self._name, utterance_id=utterance_id, chars=len(text),
+                 interrupt=interrupt)
+        try:
+            await link.request("speak_local", {"utterance_id": utterance_id, "text": text, "interrupt": interrupt},
+                               expect="ack", timeout=self.status_timeout_s)
+        except (LinkClosed, ConnectionClosed):
+            raise BodyUnavailable("the link closed while speaking") from None
+        except TimeoutError:
+            obs.emit("body.request", "speak_local was not acknowledged", body=self._name, command="speak_local",
+                     outcome="timeout")
+            raise BodyTimeout("the body did not acknowledge speak_local") from None
+        except RequestError as e:
+            obs.emit("body.request", "speak_local was refused", body=self._name, command="speak_local",
+                     outcome=f"refused ({e.code})")
+            raise BodyError("the body refused speak_local", code="refused") from None
 
     async def navigate(self, goal: NavGoal) -> str:
         self.require(Capability.NAVIGATE, not_built="no body that moves itself speaks the protocol yet")

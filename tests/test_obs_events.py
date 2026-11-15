@@ -84,9 +84,11 @@ def test_the_catalogue_is_well_formed():
         assert name == t.name and "." in name and t.component in COMPONENTS and t.level in LEVELS, name
         assert t.status in ("live", "reserved") and len(t.about) >= 20, name
     reserved = {n for n, t in EVENT_TYPES.items() if t.status == "reserved"}
-    # Named for P0-07 so it only has to emit them (model calls, cost and budget, prompt capture reference).
+    live = {n for n, t in EVENT_TYPES.items() if t.status == "live"}
+    # Named by X-02 for P0-07, and live since P0-07 emits them (model calls, cost and budget, prompt capture).
     assert {"model.call_start", "model.call_end", "cost.update", "budget.check", "budget.stop",
-            "prompt.capture_ref"} <= reserved
+            "prompt.capture_ref"} <= live
+    assert {"speech.stt", "speech.tts", "identity.decision"} <= reserved
     assert {"turn.start", "turn.end"} <= set(EVENT_TYPES)
     assert CRASH_TYPES == {"tool.failed", "process.crash", "supervisor.crashed"}
 

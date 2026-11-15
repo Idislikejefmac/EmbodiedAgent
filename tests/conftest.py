@@ -5,7 +5,8 @@ LOOPBACK-ONLY policy: no outside destination at all, whatever config.toml allows
 used config.toml's allowlist, so a real model call from a test would have gone out once a key was in
 .env.) Loopback to ports this process listens on, which the transport tests use, still works. A test
 that must reach a real vendor carries @pytest.mark.real_vendor; such tests are never collected into a
-normal run (they need their own process, policy and spend cap; the guard cannot be widened).
+normal run; `--run-real-vendor` adds them (P0-07: each sets its own small spend cap and swaps in an egress policy
+that allows only its vendor, for that test only, through tests/fakes/egress_policy.py).
 
 Markers (registered in pyproject.toml): chaos, slow (skipped unless --run-slow), real_vendor (never
 run here), gate(name, limit=, edge=) for E1b gate-edge tests, trace(ids..., promises=, risks=) for
@@ -42,15 +43,19 @@ except ImportError:  # the property tests then fail loudly at import (no silent 
 
 def pytest_addoption(parser):
     parser.addoption("--run-slow", action="store_true", help="also run tests marked slow (chaos --full)")
+    parser.addoption("--run-real-vendor", action="store_true",
+                     help="ALSO run tests marked real_vendor (they need ANTHROPIC_API_KEY and spend real money within "
+                          "their own small cap; see tests/test_real_vendor.py)")
     parser.addoption("--trace-out", metavar="PATH", help="write collected test ids, markers and docstrings "
                                                          "as JSON for tools/trace.py")
 
 
 def pytest_collection_modifyitems(config, items):
     keep, drop = [], []
+    real = config.getoption("--run-real-vendor")
     for item in items:
-        if item.get_closest_marker("real_vendor") or (item.get_closest_marker("slow")
-                                                       and not config.getoption("--run-slow")):
+        if (item.get_closest_marker("real_vendor") and not real) or (item.get_closest_marker("slow")
+                                                                     and not config.getoption("--run-slow")):
             drop.append(item)
         else:
             keep.append(item)

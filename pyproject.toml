@@ -11,6 +11,7 @@ dependencies = [
     "cryptography>=42",
     "websockets>=17.4",  # tested version; the server checks at start that its pre-auth frame limit works
     "jsonschema>=4.18",
+    "anthropic>=2.6",  # the model API SDK (card P0-07), built only in brain/egress.py; tested with 2.6.0 on httpx2 2.16.0
 ]
 
 [project.optional-dependencies]
@@ -21,14 +22,14 @@ dev = ["pytest>=8", "mypy>=1.13", "hypothesis>=6.170"]
 include = ["brain*"]
 
 [tool.setuptools.package-data]
-brain = ["agent/*.json"]  # the tool allowlist ships with the code
+brain = ["agent/*.json", "agent/prompts/*.md"]  # the tool allowlist, the price table and the system prompt ship with the code
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
     "chaos: part of the chaos and boundary harness (tools/chaos; card X-01)",
     "slow: long-running (chaos --full and the like); skipped unless --run-slow",
-    "real_vendor: would contact a real vendor or the real model; never collected into a normal run (C8)",
+    "real_vendor: would contact a real vendor or the real model; never collected into a normal run (C8); only with --run-real-vendor",
     "gate(name, limit=None, edge=None): an E1b edge test of a gate in tools/chaos/manifest.toml (below, at, above, wrong_type)",
     "trace(*ids, promises=(), risks=()): the T- ids, promises and R- ids this test covers (tools/trace.py)",
 ]
@@ -37,7 +38,7 @@ markers = [
 # Run with:  python -m mypy   (checks the packages below in strict mode; tests/test_typing.py runs it too)
 python_version = "3.13"
 strict = true
-files = ["brain/body", "brain/agent", "brain/obs", "brain/config.py", "brain/egress.py", "brain/limits.py", "brain/logsafe.py",
+files = ["brain/body", "brain/agent", "brain/obs", "brain/config.py", "brain/egress.py", "brain/limits.py", "brain/logsafe.py", "brain/chat.py",
          "brain/transport", "brain/__main__.py", "tools/chaos", "tools/migrate.py", "tools/lint.py"]
 explicit_package_bases = true  # tools/ has no __init__.py
 follow_imports = "silent"  # tools/trace.py is imported but not yet checked (H-13 list below)

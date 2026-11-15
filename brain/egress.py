@@ -50,7 +50,7 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from . import obs
 from .config import Config
@@ -171,7 +171,7 @@ class EgressPolicy:
 _quiet = threading.local()  # set while the guard tests itself, so the test does not fill the log
 
 
-def _deny(what: str) -> None:
+def _deny(what: str) -> NoReturn:
     if not getattr(_quiet, "on", False):
         log.warning("EGRESS DENIED: %s is not allowed by the [egress] allowlist", what)
         obs.emit("egress.denied", "outbound connection or lookup refused", what=what)
@@ -408,3 +408,205 @@ def install_guard(policy: EgressPolicy) -> None:
 
 def guard_active() -> bool:
     return _policy is not None
+
+
+# ---- the model API client (card P0-07; docs/body_tools_egress_v0.md section 3) -------------------------------
+#
+# The one place the brain builds an Anthropic SDK client. The SDK and its HTTP library are imported here only
+# (the import lint allows this file and no other), lazily, so commands that never call the model do not pay
+# for the import. What holds for every client built here:
+#
+# - the destination is fixed: https://api.anthropic.com (ANTHROPIC_API_HOST, port 443), checked against the
+#   egress policy before the client exists; another host, plain http, port 80 or an empty allowlist raise
+#   EgressDenied and nothing is built. The process guard checks every connection again as it is made;
+# - the HTTP client ignores the environment (`trust_env=False`: no proxy variables, no .netrc) and has an
+#   explicit transport with no retries; the SDK's own retries are off (`max_retries=0`): the agent loop does
+#   at most MODEL_RETRIES_MAX, each one through the spend guard; redirects are not followed;
+# - timeouts: MODEL_CONNECT_TIMEOUT_S to connect, MODEL_STREAM_IDLE_S between reads;
+# - the API key is passed in explicitly (the SDK then reads no credential from the environment or from a
+#   profile on disk) and is never logged, shown in repr, or written anywhere;
+# - every SDK and HTTP failure leaves this module as a VendorError with a one-word code, never as an SDK
+#   type, and never with the SDK's message text (which can quote a request).
+
+ANTHROPIC_API_HOST = "api.anthropic.com"
+ANTHROPIC_BASE_URL = f"https://{ANTHROPIC_API_HOST}"
+ANTHROPIC_KEY_NAME = "ANTHROPIC_API_KEY"
+
+
+class VendorError(Exception):
+    """A model API call failed. `code` is one word (below); `status` the HTTP status when there was one;
+    `retryable` says whether one more attempt may help (rate limit, overload, server error, connection);
+    `retry_after_s` is the server's hint, bounded, when it gave one. The message holds no vendor text."""
+
+    CODES = ("rate_limited", "overloaded", "server_error", "timeout", "connection", "egress_denied", "auth",
+             "bad_request", "not_found", "too_large", "malformed", "other")
+
+    def __init__(self, code: str, *, status: int | None = None, retryable: bool = False,
+                 retry_after_s: float | None = None):
+        self.code = code if code in self.CODES else "other"
+        self.status = status
+        self.retryable = retryable
+        self.retry_after_s = retry_after_s
+        super().__init__(f"model API call failed: {self.code}" + (f" (HTTP {status})" if status else ""))
+
+
+def anthropic_api_key(env_path: Any = None, environ: Any = None) -> str | None:
+    """The model API key from the environment, else from .env (config.parse_env_file), or None. The value is
+    returned to the caller that builds the client and to nothing else; it is never logged."""
+    from .config import parse_env_file
+
+    env = os.environ if environ is None else environ
+    value = env.get(ANTHROPIC_KEY_NAME) or parse_env_file(env_path).get(ANTHROPIC_KEY_NAME)
+    return value or None
+
+
+def _retry_after(headers: Any) -> float | None:
+    try:
+        value = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return value if 0 <= value <= 60 else None
+
+
+def _vendor_error(e: BaseException) -> VendorError:
+    """An SDK or HTTP exception as a VendorError (most specific first). Looks at types and status codes only."""
+    import anthropic
+    import httpx2
+
+    chain: list[BaseException] = []
+    cur: BaseException | None = e
+    while cur is not None and len(chain) < 8:
+        chain.append(cur)
+        cur = cur.__cause__ or cur.__context__
+    if any(isinstance(c, EgressDenied) for c in chain):
+        return VendorError("egress_denied")
+    if isinstance(e, anthropic.APITimeoutError) or isinstance(e, httpx2.TimeoutException):
+        return VendorError("timeout", retryable=True)
+    if isinstance(e, anthropic.APIStatusError):
+        status = e.status_code
+        hint = _retry_after(getattr(e.response, "headers", {}))
+        if status < 400:  # an `error` event inside a 200 stream: its type says what happened
+            body = getattr(e, "body", None)
+            err = body.get("error") if isinstance(body, dict) else None
+            kind = err.get("type") if isinstance(err, dict) else None
+            mapped = {"overloaded_error": 529, "rate_limit_error": 429, "api_error": 500,
+                      "invalid_request_error": 400, "authentication_error": 401, "permission_error": 403,
+                      "not_found_error": 404, "request_too_large": 413}
+            status = mapped.get(kind, 500) if isinstance(kind, str) else 500
+        if status == 429:
+            return VendorError("rate_limited", status=status, retryable=True, retry_after_s=hint)
+        if status == 529:
+            return VendorError("overloaded", status=status, retryable=True, retry_after_s=hint)
+        if status >= 500:
+            return VendorError("server_error", status=status, retryable=True, retry_after_s=hint)
+        if status in (401, 403):
+            return VendorError("auth", status=status)
+        if status == 404:
+            return VendorError("not_found", status=status)
+        if status == 413:
+            return VendorError("too_large", status=status)
+        return VendorError("bad_request", status=status)
+    if isinstance(e, anthropic.APIConnectionError) or isinstance(e, (httpx2.TransportError, OSError)):
+        return VendorError("connection", retryable=True)
+    if isinstance(e, (anthropic.APIResponseValidationError, ValueError, httpx2.DecodingError)):
+        return VendorError("malformed")
+    return VendorError("other")
+
+
+class AnthropicClient:
+    """The model API client the agent loop uses. It holds the SDK client (and so the key); the loop sees only
+    plain dicts and VendorError. Build it with `build_anthropic_client`."""
+
+    def __init__(self, sdk: Any, *, base_url: str):
+        self._sdk = sdk
+        self.base_url = base_url
+
+    def __repr__(self) -> str:
+        return f"AnthropicClient({self.base_url})"  # never the key
+
+    async def stream_events(self, params: dict[str, Any]) -> Any:
+        """Send one streaming Messages request; yield each streamed event as a plain dict (untrusted data: the
+        caller validates it). Raises VendorError, never an SDK or HTTP exception."""
+        import anthropic
+        import httpx2
+
+        try:
+            stream = await self._sdk.messages.create(**params, stream=True)
+        except (anthropic.AnthropicError, httpx2.HTTPError, OSError, ValueError) as e:
+            raise _vendor_error(e) from None
+        try:
+            async for event in stream:
+                try:
+                    yield event.to_dict()
+                except (AttributeError, TypeError, ValueError):
+                    yield {"type": "<unreadable>"}
+        except (anthropic.AnthropicError, httpx2.HTTPError, OSError, ValueError) as e:
+            raise _vendor_error(e) from None
+        finally:
+            try:
+                await stream.close()
+            except (anthropic.AnthropicError, httpx2.HTTPError, OSError, RuntimeError):  # swallowed: closing an ended stream
+                pass
+
+    async def list_model_ids(self, limit: int) -> list[str]:
+        """Up to `limit` model ids from the API's model list. Raises VendorError."""
+        import anthropic
+        import httpx2
+
+        ids: list[str] = []
+        try:
+            async for model in self._sdk.models.list():
+                mid = getattr(model, "id", None)
+                if isinstance(mid, str) and len(mid) <= 128:
+                    ids.append(mid)
+                if len(ids) >= limit:
+                    break
+        except (anthropic.AnthropicError, httpx2.HTTPError, OSError, ValueError) as e:
+            raise _vendor_error(e) from None
+        return ids
+
+    async def aclose(self) -> None:
+        import anthropic
+        import httpx2
+
+        try:
+            await self._sdk.close()
+        except (anthropic.AnthropicError, httpx2.HTTPError, OSError, RuntimeError):  # swallowed: a broken pool
+            pass
+
+
+def build_anthropic_client(api_key: str, *, base_url: str = ANTHROPIC_BASE_URL, policy: EgressPolicy | None = None,
+                           transport: Any = None) -> AnthropicClient:
+    """THE factory for the model API client (async). Checks the destination against `policy` (default: the
+    policy of the installed guard; no guard installed refuses) before anything is built; see the notes above.
+    `transport` is for tests only (an in-memory transport that opens no socket). Raises EgressDenied for a
+    destination that is not allowed and ValueError for an unusable key."""
+    from urllib.parse import urlsplit
+
+    from .limits import MODEL_CONNECT_TIMEOUT_S, MODEL_STREAM_IDLE_S
+
+    if not isinstance(api_key, str) or not api_key or not api_key.isprintable() or len(api_key) > 4096:
+        raise ValueError("the model API key is missing or not usable")
+    effective = policy if policy is not None else _policy
+    if effective is None:
+        _deny("the model API (the egress guard is not installed; no client is built without it)")
+    try:
+        parts = urlsplit(base_url)
+        host = (parts.hostname or "").lower()
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except (ValueError, TypeError, AttributeError):
+        _deny("a malformed model API address")
+    if parts.scheme != "https" or host != ANTHROPIC_API_HOST or parts.username or parts.password:
+        _deny(f"{host or '?'!r} port {port} over {parts.scheme or '?'} (the model API is https://{ANTHROPIC_API_HOST} only)")
+    effective.check(host, port)
+
+    import anthropic
+    import httpx2
+
+    timeout = httpx2.Timeout(MODEL_STREAM_IDLE_S, connect=MODEL_CONNECT_TIMEOUT_S)
+    http = httpx2.AsyncClient(trust_env=False, timeout=timeout, follow_redirects=False,
+                              transport=transport if transport is not None
+                              else httpx2.AsyncHTTPTransport(trust_env=False, retries=0))
+    sdk = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url, http_client=http, max_retries=0,
+                                   timeout=timeout)
+    return AnthropicClient(sdk, base_url=base_url)

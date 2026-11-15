@@ -35,6 +35,8 @@ def test_a_real_call_from_a_test_is_refused_before_any_lookup(host):
 
 
 @pytest.mark.real_vendor
-def test_marked_real_vendor_would_fail_if_it_ran():
-    """Proof that real_vendor tests are deselected: if this one ever runs, it fails."""
+def test_marked_real_vendor_would_fail_if_it_ran(request):
+    """Proof that real_vendor tests are deselected: if this one ever runs in a normal run, it fails."""
+    if request.config.getoption("--run-real-vendor"):
+        pytest.skip("real_vendor tests were asked for explicitly (--run-real-vendor)")
     pytest.fail("a real_vendor test was collected into a normal run")

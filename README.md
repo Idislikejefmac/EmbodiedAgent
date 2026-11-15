@@ -53,6 +53,14 @@ Starts a body, calls every agent tool through the tool registry (the same path t
 
 The agent has no tools except those listed in `brain/agent/tools.v0.json`; `docs/body_tools_egress_v0.md` describes the registry, the refusal format and the egress guard. The brain can only reach the hosts in `config.toml` `[egress]` and loopback ports it listens on itself: `brain/egress.py` refuses every other connection in the socket layer, removes proxy environment variables at start, and cannot be widened once installed.
 
+## Talk to the agent loop
+
+```powershell
+.\.venv\Scripts\python -m brain chat
+```
+
+The agent loop (card P0-07) against SimBody with a scripted stand-in model: no key, no network, no spend. Type a line (or `/poke`, `/look <question>`, `/quit`); the reply is spoken through the body and the live event trace shows every step. `--as-app` feeds the lines as app-channel (untrusted) turns; `--live` uses the real model API and needs `ANTHROPIC_API_KEY`, `[models] allow_live_calls = true` and the spend caps in `[caps]`. Details: `docs/agent_loop.md`.
+
 ## Run the brain server (protocol v0)
 
 ```powershell

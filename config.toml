@@ -19,6 +19,9 @@ kind = "sim"
 live_conversation = "claude-haiku-5-5"
 careful_looking = "claude-sonnet-5-5"
 offline = "claude-opus-5-5"
+# Consent to real, paid model calls (`python -m brain chat --live`, card P0-07). While false, the live loop
+# refuses to start; the scripted model needs no consent and spends nothing. Spend is capped by [caps] below.
+allow_live_calls = false
 
 [caps]
 # Interim caps from docs/cost-estimate.md (DEC-068, answered by Jeff 13 Nov 2026). Enforced from card P0-07

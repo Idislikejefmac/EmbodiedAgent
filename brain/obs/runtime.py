@@ -54,7 +54,7 @@ class ObsRuntime:
         self._lost = lost
         st = self.state.state
         extra: dict[str, Any] = {
-            "budget": {"guard": "placeholder until card P0-07 step 9", "requests_this_hour": st.requests_this_hour,
+            "budget": {"guard": "interim spend guard (P0-07)", "requests_this_hour": st.requests_this_hour,
                        "spend_usd_session": st.spend_usd_session, "spend_usd_today": st.spend_usd_today,
                        "spend_usd_total": st.spend_usd_total},
             "state_file": {"starts": st.starts, "pending_requests": len(st.pending_request_ids),

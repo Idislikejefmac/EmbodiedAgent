@@ -82,6 +82,19 @@ Do not skip; record the results in the P0-07 report. For both the sync and the a
 - [ ] With `HTTPS_PROXY` and `ALL_PROXY` pointing at a loopback listener in another process, set before start: the variables are gone after `install_guard`, the call still goes direct, and the listener receives nothing. Repeat with the proxy passed to the client explicitly: refused, listener receives nothing.
 - [ ] Streaming requests behave the same as non-streaming ones.
 
+**Results (P0-07, 15 Nov 2026; SDK `anthropic` 2.6.0 on `httpx2` 2.16.0; tests/test_model_client.py).** Built:
+`build_anthropic_client` in `brain/egress.py`, ASYNC client only (the loop needs no sync one), `trust_env=False`,
+an explicit `httpx2.AsyncHTTPTransport(retries=0)`, SDK `max_retries=0`, no redirects, the key passed explicitly;
+the import lint passes. Checked without network: a base URL of `https://192.0.2.1/`, `http://api.anthropic.com/`
+(port 80), port 80 over https, another host, a URL with credentials, and an empty allowlist each raise
+`EgressDenied` before anything is built; an SDK client built by hand around the factory is stopped by the guard
+with `EgressDenied` in the cause chain; with `HTTPS_PROXY` and `ALL_PROXY` pointing at a listener in another
+process the client goes direct (the guard refuses the lookup of the API host under the suite's loopback-only
+policy) and the listener receives nothing; an explicit proxy is refused at its loopback connection. Every request
+is a streaming one. **Not yet done: the one real call** (needs the key): `pytest tests\test_real_vendor.py
+--run-real-vendor` records the destinations and checks that only `api.anthropic.com` was looked up and only port
+443 connected. Note: this SDK sends the key as `authorization: Bearer`, not `x-api-key`.
+
 Limits, stated plainly:
 
 - The guard sees Python's socket module only. A C extension with its own networking, direct calls into `_overlapped` or `ctypes`, or a child process (adb is one, and is the approved link to the phone) bypass it. The import lint keeps such code out of the brain.

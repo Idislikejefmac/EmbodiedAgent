@@ -14,6 +14,7 @@ can and cannot promise. Code: `brain/obs/`. Limits: `brain/limits.py` (the `OBS_
     python -m brain health                     # the health panel once (says STALE if the brain stopped writing it)
     python -m brain demo-trace                 # a scripted conversation against SimBody: no hardware needed
     python -m brain demo-trace --unavailable   # the same with the body link, camera and microphone unavailable
+    python -m brain chat                       # the agent loop with a typed console; shows its trace live (P0-07)
     python -m brain serve --supervised         # restart the brain if it dies unexpectedly (see the crash barrier)
 
 `watch` filters: `--component agent` (repeatable), `--level WARNING` (minimum), `--type 'tool.*'` (glob,
@@ -61,7 +62,7 @@ lists them too (`event_type.*`), so adding or removing one is reviewed.
   `body.not_supported`, `body.request`, `queue.drop`, `validation.failed`.
 - Agent: `tool.call` (names, types and sizes of the arguments, never values), `tool.result`, `tool.refused`,
   `tool.timeout`, `tool.shut_off`, `tool.failed`, `channel.decision`, `sensitivity.decision`, `turn.start`,
-  `turn.end` (demo-trace today; the agent loop from P0-07).
+  `turn.end` (the agent loop, `python -m brain chat`, and demo-trace; `turn.end` carries the outcome code).
 - Process and config: `config.loaded`, `config.error`, `startup.self_test`, `startup.refused`,
   `egress.denied`, `brain.start`, `brain.stop`, `process.crash`, `probe.result`, `pair.result`.
 - The pipeline itself: `obs.started`, `obs.sink_failed`, `obs.sink_recovered`, `obs.dropped`,
@@ -70,11 +71,14 @@ lists them too (`event_type.*`), so adding or removing one is reviewed.
   `supervisor.fatal`, `supervisor.stopped`, `launcher.start`, `launcher.exit`, `launcher.restart`,
   `launcher.gave_up`.
 - Demo: `demo.step`.
-- **Reserved for later cards** (named and documented, so the card only calls `emit`): `model.call_start`,
-  `model.call_end`, `cost.update`, `budget.check`, `budget.stop` (P0-07 step 9, the interim spend guard),
-  `prompt.capture_ref` (P0-07 step 10: the record id and byte count of an entry in the PRIVATE capture file;
-  full prompts never enter the event stream), `speech.stt`, `speech.tts` (P2), `identity.decision` (P3-10).
-  The health panel already maps `model.call_end`, `speech.*` and `budget.*` to their sources.
+- Model, spend and capture (live since P0-07, `docs/agent_loop.md`): `model.call_start`, `model.call_end` (ok,
+  stop reason or failure code, tokens in, out, cache read, cache write), `cost.update`, `budget.check` (at
+  WARNING for the 80 percent warning and a stale price table), `budget.stop`, `prompt.capture_ref` (the record id
+  and byte count of an entry in the PRIVATE capture file; full prompts never enter the event stream). Field names
+  avoid the redacted words: token counts are `in_tok`, `out_tok`, `cache_read_tok`, `cache_write_tok`.
+- **Reserved for later cards** (named and documented, so the card only calls `emit`): `speech.stt`, `speech.tts`
+  (P2), `identity.decision` (P3-10). The health panel maps `model.call_end` (model_vendor), `speech.*` and
+  `budget.*` to their sources.
 
 Types marked `crash` (`supervisor.crashed`, `tool.failed`, `process.crash`) report an exception nothing
 expected, caught by an isolation point; the chaos harness counts one as a crash.

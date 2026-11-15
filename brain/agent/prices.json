@@ -1,0 +1,10 @@
+{
+  "comment": "USD per million tokens, Anthropic first-party API, standard (not batch, not fast mode). Cache write is the 5-minute TTL rate (1.25 x input); cache read is the cache-hit rate. Haiku 5.5 bills the whole request at 5 x when its prompt is over 100,000 tokens. Source: the plan's model table and the vendor pricing page as cached by the build session; NOT independently re-verified by Jeff. Re-check https://platform.claude.com/docs/en/about-claude/pricing and update verified_on.",
+  "verified_on": "2026-11-13",
+  "models": {
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125,
+                         "long_context_tokens": 100000, "long_context_multiplier": 5.0},
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.10, "cache_write": 2.5},
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_read": 0.20, "cache_write": 5.0}
+  }
+}

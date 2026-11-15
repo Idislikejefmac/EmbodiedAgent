@@ -15,8 +15,8 @@ One event is one JSON line:
 - `msg` is a short sentence; `f` holds the bounded, redacted fields (brain/obs/redact.py).
 
 Every type is listed in EVENT_TYPES with its component, default level and meaning. A type whose `status`
-is "reserved" is named and documented for a later card (P0-07 emits the model, cost, budget, turn and
-prompt-capture events) so that card only has to call emit(). A type marked `crash` reports an exception
+is "reserved" is named and documented for a later card so that card only has to call emit() (P0-07 now emits
+the model, cost, budget, turn and prompt-capture events). A type marked `crash` reports an exception
 nothing expected (an isolation point caught it); the chaos harness treats one as a crash.
 """
 
@@ -129,24 +129,24 @@ _ALL = [
     _t("launcher.exit", "launcher", "WARNING", "the brain process ended (exit code, meaning)"),
     _t("launcher.restart", "launcher", "WARNING", "the brain process will be restarted after a backoff"),
     _t("launcher.gave_up", "launcher", "ERROR", "the brain process failed too often; the launcher stops"),
-    # ---- turns: used by demo-trace today, by the agent loop from P0-07 ----
+    # ---- turns: the agent loop (brain/agent/loop.py, P0-07) and demo-trace ----
     _t("turn.start", "agent", "INFO", "an agent turn started (turn id, content sources; never the words)",
        card="P0-07"),
     _t("turn.end", "agent", "INFO", "an agent turn ended (outcome, tool calls, duration)", card="P0-07"),
     _t("demo.step", "demo", "INFO", "a step of the scripted demo session (python -m brain demo-trace)"),
-    # ---- reserved for later cards: named so they only have to emit them ----
+    # ---- the model, the spend guard and the prompt capture (brain/agent, P0-07) ----
     _t("model.call_start", "model", "INFO", "a model request started (model id, input tokens estimate, tools offered)",
-       status="reserved", card="P0-07"),
-    _t("model.call_end", "model", "INFO", "a model request ended (stop reason, tokens in and out, ms, ok or error code)",
-       status="reserved", card="P0-07"),
-    _t("cost.update", "model", "INFO", "spend after a request (usd this session, today, since start)",
-       status="reserved", card="P0-07"),
-    _t("budget.check", "model", "INFO", "the interim spend guard was consulted (which cap, headroom)",
-       status="reserved", card="P0-07"),
-    _t("budget.stop", "model", "ERROR", "a spend or rate cap stopped a request (which cap)", status="reserved",
        card="P0-07"),
+    _t("model.call_end", "model", "INFO", "a model request ended (stop reason, tokens in and out, ms, ok or error code)",
+       card="P0-07"),
+    _t("cost.update", "model", "INFO", "spend after a request (usd this session, today, since start)",
+       card="P0-07"),
+    _t("budget.check", "model", "INFO", "the interim spend guard was consulted (which cap, headroom)",
+       card="P0-07"),
+    _t("budget.stop", "model", "ERROR", "a spend or rate cap stopped a request (which cap)", card="P0-07"),
     _t("prompt.capture_ref", "model", "INFO", "a full prompt and response went to the PRIVATE capture file: "
-       "only its record id and byte count are here, never the text", status="reserved", card="P0-07"),
+       "only its record id and byte count are here, never the text", card="P0-07"),
+    # ---- reserved for later cards: named so they only have to emit them ----
     _t("speech.stt", "speech", "INFO", "a transcript arrived (vendor, ms, character count; never the words)",
        status="reserved", card="P2-02"),
     _t("speech.tts", "speech", "INFO", "speech was synthesized (vendor, ms, character count)", status="reserved",
@@ -220,9 +220,10 @@ ENTRY_COVERAGE: dict[str, tuple[str, ...]] = {
     "cli_command.brain.pair": ("pair.result",),
     "cli_command.brain.body-check": ("tool.call", "tool.result"),
     "cli_command.brain.demo-trace": ("demo.step", "turn.start", "turn.end"),
+    "cli_command.brain.chat": ("turn.start", "turn.end", "model.call_start", "model.call_end", "cost.update"),
+    "message.speak_local": ("body.speak", "body.request"),
 }
 ENTRY_EXEMPT: dict[str, str] = {
-    "message.speak_local": "the brain does not send speak_local yet (card P0-07 step 6 wires speak to it)",
     "message.audio_out": "the brain does not send speaker audio yet (card P2-01)",
     "body_method.name": "a constant label for operators; no decision is made",
     "body_method.supports": "a read-only membership test; the refusal it guards is body.not_supported",

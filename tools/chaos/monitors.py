@@ -407,8 +407,8 @@ class CaseMonitors:
         if top not in FORBIDDEN_IMPORTS:
             return
         rel = _rel(importer)
-        if not rel or rel.startswith(HARNESS_DIR):
-            return  # the standard library, a dependency, or the harness itself
+        if not rel or rel.startswith(HARNESS_DIR) or "/site-packages/" in f"/{rel}":
+            return  # the standard library, a dependency (also one in a virtual environment inside the repo), or the harness
         allowed = IMPORT_ALLOWED_FILES.get(rel, set())
         if allowed is None or top in allowed:
             return

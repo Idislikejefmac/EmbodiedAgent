@@ -1,6 +1,8 @@
-"""python -m brain [info|serve|probe|pair|body-check|chaos|watch|health|demo-trace].
+"""python -m brain [info|serve|probe|pair|body-check|chat|chaos|watch|health|demo-trace].
 
 info (default): print the version, load config, and report which keys exist.
+chat: the agent loop (card P0-07) with a typed console: SimBody and a scripted model by default; --as-app feeds
+    the lines as APP-channel turns; --live uses the real model API (key, consent flag and spend caps required).
 serve: run the protocol v0 WebSocket server (and keep the phone link up unless --no-phone-link), under the
     crash barrier (brain/obs/supervisor.py), writing events to data/logs/events-*.jsonl, the health panel
     to data/health.json and its state to data/state.json. --supervised runs it under the process launcher,
@@ -407,6 +409,38 @@ def body_check(args: argparse.Namespace, config: Config) -> int:
     return asyncio.run(_body_check(body, args.wait))
 
 
+def chat(args: argparse.Namespace, config: Config) -> int:
+    """`chat`: the agent loop (card P0-07) with a typed console; see brain/chat.py."""
+    from .body import create_body
+    from .chat import ChatOptions, run_chat
+
+    log_file = setup_logging(config, "chat")
+    for h in logging.getLogger().handlers:  # the console shows the trace and the replies; the log file gets INFO
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            h.setLevel(logging.WARNING)
+    logging.raiseExceptions = False
+    try:
+        sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]  # a TextIOWrapper on every console
+    except (AttributeError, ValueError):  # swallowed: an unusual stdout keeps its own error handling
+        pass
+    kind = args.body or config.body.kind
+    token = None
+    if kind == "phone":
+        token, problem = load_token(config)
+        if token is None:
+            print(problem)
+            obs.emit("startup.refused", "the link token store is not usable; not starting", reason="token_store")
+            return EXIT_REFUSED
+    try:
+        body = create_body(kind, config, token=token)
+    except ValueError as e:
+        print(e)
+        return EXIT_REFUSED
+    print(f"log file {log_file}")
+    options = ChatOptions(as_app=args.as_app, trace=not args.quiet, live=args.live)
+    return asyncio.run(run_chat(config, body, options=options))
+
+
 def chaos(argv: list[str]) -> int:
     """The chaos harness (tools/chaos, card X-01). It runs under a stricter guard than the brain itself:
     loopback only, no [egress] destination at all, installed before the harness is even imported."""
@@ -479,6 +513,17 @@ def build_parser(config: AnyConfig) -> argparse.ArgumentParser:
     bc.add_argument("--body", choices=("sim", "phone"), default=None, help="default: config.toml [body] kind")
     bc.add_argument("--wait", type=_float_in_range(0.0, BODY_CHECK_WAIT_MAX_S, "--wait"), default=30.0,
                     help=f"seconds to wait for the body to connect, 0 to {BODY_CHECK_WAIT_MAX_S:g}")
+    ch = sub.add_parser("chat", help="talk to the agent loop (SimBody and a scripted model unless told otherwise)")
+    ch.add_argument("--body", choices=("sim", "phone"), default=None, help="default: config.toml [body] kind")
+    ch.add_argument("--as-app", action="store_true",
+                    help="feed typed lines as APP-channel turns (body content) instead of the privileged console")
+    which = ch.add_mutually_exclusive_group()
+    which.add_argument("--fake-model", action="store_true",
+                       help="the scripted model: no key, no network, no spend (the default)")
+    which.add_argument("--live", action="store_true",
+                       help="the real model API: needs ANTHROPIC_API_KEY and [models] allow_live_calls = true; "
+                            "capped by [caps]; prints the cost after each turn")
+    ch.add_argument("--quiet", action="store_true", help="do not show the live event trace")
     sub.add_parser("chaos", add_help=False,
                    help="run the chaos and boundary test harness (card X-01; `chaos --help` for its options)")
     w = sub.add_parser("watch", help="show the event files (live with --follow); --health shows the health panel")
@@ -591,6 +636,8 @@ def _command(args: argparse.Namespace, config: Config, argv: list[str]) -> int:
         return pair(args, config)
     if args.cmd == "demo-trace":
         return demo_trace(args, config)
+    if args.cmd == "chat":
+        return chat(args, config)
     return info()
 
 
