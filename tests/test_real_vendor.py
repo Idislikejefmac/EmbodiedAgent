@@ -41,9 +41,10 @@ def test_one_tiny_haiku_call_is_metered_and_goes_only_to_the_api():
 
     def hook(event: str, args: tuple[Any, ...]) -> None:
         if recording["on"] and event == "socket.getaddrinfo":
-            destinations.append(f"{args[0]}:{args[1]}")
+            host = args[0].decode("ascii", "replace") if isinstance(args[0], bytes) else str(args[0])  # httpcore passes bytes
+            destinations.append(f"{host}:{args[1]}")
         elif recording["on"] and event == "socket.connect" and isinstance(args[1], tuple):
-            destinations.append(f"connect:{args[1][1]}")
+            destinations.append(f"connect:{args[1][0]}:{args[1][1]}")  # host and port: loop-internal sockets are loopback
 
     sys.addaudithook(hook)  # runs after the guard's hook: it sees only what the guard let through
 
@@ -84,4 +85,9 @@ def test_one_tiny_haiku_call_is_metered_and_goes_only_to_the_api():
     cost = [e for e in events if e["type"] == "cost.update"]
     assert cost and 0 < guard.counters.session <= LIVE_TEST_USD_CAP and cost[-1]["f"]["usd"] > 0
     names = {d.split(":")[0] for d in destinations if not d.startswith("connect:")}
-    assert names <= {"api.anthropic.com"} and all(d.endswith(":443") for d in destinations if d.startswith("connect:"))
+    # On Windows asyncio's proactor raises no `socket.connect` audit event (brain/egress.py wraps IocpProactor.connect
+    # instead), so the visible proof is the name lookups; the guard is the second proof: any other destination would have
+    # raised EgressDenied and failed the call above.
+    lookups = [d for d in destinations if not d.startswith("connect:")]
+    assert lookups, "the call should have resolved the API host"
+    assert names <= {"api.anthropic.com"} and all(d.endswith(":443") for d in lookups), (names, lookups)
