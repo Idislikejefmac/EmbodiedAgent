@@ -88,7 +88,7 @@ def test_the_catalogue_is_well_formed():
     # Named by X-02 for P0-07, and live since P0-07 emits them (model calls, cost and budget, prompt capture).
     assert {"model.call_start", "model.call_end", "cost.update", "budget.check", "budget.stop",
             "prompt.capture_ref"} <= live
-    assert {"speech.stt", "speech.tts", "identity.decision"} <= reserved
+    assert {"speech.tts", "identity.decision"} <= reserved and "speech.stt" not in reserved
     assert {"turn.start", "turn.end"} <= set(EVENT_TYPES)
     assert CRASH_TYPES == {"tool.failed", "process.crash", "supervisor.crashed"}
 

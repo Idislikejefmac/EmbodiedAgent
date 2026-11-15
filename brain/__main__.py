@@ -1,4 +1,4 @@
-"""python -m brain [info|serve|probe|pair|body-check|chat|chaos|watch|health|demo-trace].
+"""python -m brain [info|serve|probe|pair|body-check|chat|chaos|watch|health|demo-trace|stt-check].
 
 info (default): print the version, load config, and report which keys exist.
 Every command takes `--profile NAME` (anywhere on the line): the setup of one person, all from profiles/NAME/
@@ -18,6 +18,8 @@ pair: give the phone body this brain's link token (debug builds of the body only
 body-check: start a body (--body sim or phone), call every agent tool through the registry, and try the
     command-boundary requests. With --body sim it needs no phone and no network.
 chaos: the chaos and boundary test harness (tools/chaos/README.md): --quick, --full, --seed N.
+stt-check: transcribe one 16 kHz mono 16-bit WAV file with the local speech model (docs/stt.md): text, decode time,
+    real-time factor. Local only: it never uses the network.
 
 Every command runs under the egress guard (brain/egress.py): only the destinations in config.toml
 [egress] can be reached, plus loopback ports this process listens on. `probe` may also dial the
@@ -42,7 +44,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Any
 
 from . import __version__, obs
-from .config import Config, ConfigError, ProfileError, as_config, key_presence, load_config
+from .config import STT_MODELS, Config, ConfigError, ProfileError, as_config, key_presence, load_config
 from .config import REPO_ROOT as REPO_ROOT  # re-exported for the harness and tests
 from .limits import (BODY_CHECK_WAIT_MAX_S, ECHO_TEST_MAX_BYTES, ECHO_TEST_MAX_COUNT, LOG_FILE_BACKUPS,
                      LOG_FILE_MAX_BYTES, PORT_MAX, PORT_MIN)
@@ -451,6 +453,46 @@ def chat(args: argparse.Namespace, config: Config) -> int:
     return asyncio.run(run_chat(config, body, options=options))
 
 
+def stt_check(args: argparse.Namespace, config: Config) -> int:
+    """`stt-check FILE.wav [--model base.en|small.en]`: transcribe one WAV with the local engine (docs/stt.md)."""
+    import dataclasses
+
+    from .body.types import AudioChunk
+    from .limits import AUDIO_IN_MAX_CHUNK_BYTES, AUDIO_IN_RATE_HZ
+    from .voice.stt import LocalWhisperEngine, SttError, SttUnavailable
+    from .voice.wavcheck import WavError, read_wav_pcm16k
+
+    try:
+        pcm = read_wav_pcm16k(args.file)
+    except WavError as e:
+        print(f"stt-check: {e}")
+        return EXIT_REFUSED
+    engine = LocalWhisperEngine(dataclasses.replace(config.stt, model=args.model or config.stt.model))
+    step = min(2560, AUDIO_IN_MAX_CHUNK_BYTES)  # 80 ms chunks, as the microphone path will deliver them
+
+    async def go() -> int:
+        engine.start("stt-check")
+        for i in range(0, len(pcm), step):
+            engine.feed(AudioChunk(0, i // step, AUDIO_IN_RATE_HZ, 1, pcm[i:i + step]))
+        r = await engine.finish()
+        print(f"model {engine.config.model}, device {engine.device_used}, model load {engine.load_ms or 0:.0f} ms")
+        print(f"audio {r.duration_s:.2f} s, decode {r.decode_ms:.0f} ms, real-time factor {r.rtf:.3f}"
+              + (f", empty: {r.empty_reason}" if r.empty_reason else ""))
+        print(f"text: {r.text}" if r.text else "text: (nothing)")
+        return 0
+
+    try:
+        return asyncio.run(go())
+    except SttError as e:
+        print(f"stt-check: {type(e).__name__}: {e}")
+        if "lock.json" in str(e) or "model folder" in str(e):
+            print("fetch the models once with: python tools/fetch_stt_model.py (profiles can point [stt] model_dir "
+                  "at the shared folder)")
+        return EXIT_REFUSED if isinstance(e, SttUnavailable) else 1
+    finally:
+        engine.close()
+
+
 def chaos(argv: list[str]) -> int:
     """The chaos harness (tools/chaos, card X-01). It runs under a stricter guard than the brain itself:
     loopback only, no [egress] destination at all, installed before the harness is even imported."""
@@ -577,6 +619,9 @@ def build_parser(config: AnyConfig) -> argparse.ArgumentParser:
                        help="the real model API: needs ANTHROPIC_API_KEY and [models] allow_live_calls = true; "
                             "capped by [caps]; prints the cost after each turn")
     ch.add_argument("--quiet", action="store_true", help="do not show the live event trace")
+    sc = sub.add_parser("stt-check", help="transcribe a 16 kHz mono 16-bit WAV file with the local speech model")
+    sc.add_argument("file", help="the WAV file (16 kHz, mono, 16-bit PCM, at most 15 s)")
+    sc.add_argument("--model", choices=STT_MODELS, default=None, help="default: config.toml [stt] model")
     sub.add_parser("chaos", add_help=False,
                    help="run the chaos and boundary test harness (card X-01; `chaos --help` for its options)")
     w = sub.add_parser("watch", help="show the event files (live with --follow); --health shows the health panel")
@@ -711,6 +756,8 @@ def _command(args: argparse.Namespace, config: Config, argv: list[str]) -> int:
         return demo_trace(args, config)
     if args.cmd == "chat":
         return chat(args, config)
+    if args.cmd == "stt-check":
+        return stt_check(args, config)
     return info(config)
 
 

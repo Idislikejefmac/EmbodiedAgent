@@ -44,7 +44,7 @@ DEFAULTS: dict[str, tuple[str, str]] = {
     "battery": ("unknown", "no body status reading yet"),
     "temperature": ("unknown", "no body status reading yet"),
     "model_vendor": ("unknown", "no model call yet (only `chat` calls the model)"),
-    "speech_vendors": ("unknown", "not built: speech to text and text to speech are cards P2-01 and P2-02"),
+    "speech_vendors": ("unknown", "no transcription yet (local speech to text, card P2-04; text to speech is P2-05)"),
     "queues": ("up", "no drops"),
     "budget": ("unknown", "the spend guard has not been consulted yet (only `chat` calls the model)"),
     "disk": ("unknown", "not measured yet"),
@@ -252,6 +252,17 @@ def _vendor(source: str) -> Callable[[HealthBoard, Mapping[str, Any], Mapping[st
     return handler
 
 
+def _stt(board: HealthBoard, f: Mapping[str, Any], event: Mapping[str, Any]) -> None:
+    """Local speech to text: up after a transcript, down when the engine is unavailable (model missing or changed),
+    degraded for a busy decoder, a timeout or bad audio. The reason names the code, never the words."""
+    if f.get("ok", True):
+        board.set("speech_vendors", "up", f"{f.get('vendor', 'speech to text')}: last transcript {f.get('ms')} ms, "
+                                          f"real-time factor {f.get('rtf')}")
+    else:
+        code = f.get("code")
+        board.set("speech_vendors", "down" if code == "SttUnavailable" else "degraded", f"last transcript failed: {code}")
+
+
 def _component(state: str) -> Callable[[HealthBoard, Mapping[str, Any], Mapping[str, Any]], None]:
     def handler(board: HealthBoard, f: Mapping[str, Any], event: Mapping[str, Any]) -> None:
         name = f.get("component")
@@ -280,7 +291,7 @@ _HANDLERS: dict[str, Handler] = {
     "clock.estimate": _clock,
     "clock.reset": lambda b, f, e: b.set("clock", "degraded", "a sample disagreed; the estimate restarted"),
     "model.call_end": _vendor("model_vendor"),
-    "speech.stt": _vendor("speech_vendors"),
+    "speech.stt": _stt,
     "speech.tts": _vendor("speech_vendors"),
     "budget.check": lambda b, f, e: b.set("budget", "up", f"headroom {f.get('headroom_usd')} USD"),
     "budget.stop": lambda b, f, e: b.set("budget", "down", f"stopped by the {f.get('cap')} cap"),

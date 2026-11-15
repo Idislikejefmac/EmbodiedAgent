@@ -33,7 +33,7 @@ This makes `profiles/mary/` with:
 - `config.toml`: safe per-person defaults. Its own port (the next free one from 8766 up that no other profile or the root config uses; each person's brain needs its own port and its own `adb reverse tcp:PORT tcp:PORT`), `[caps]` session $1, daily $5, hard stop $10, 300 requests an hour, `[models] allow_live_calls = false`, `[logging] full_prompts = false`, egress limited to `api.anthropic.com`.
 - `.env`: the key names with nothing after them.
 - `README.txt`: where to put the key (no value in it).
-- `data/`: empty.
+- `data/`: empty. A profile's speech models default to its own `data/models/stt/`; to share Jeff's downloaded models instead, set `[stt] model_dir` in its `config.toml` to the full path of the project's `data/models/stt` (docs/stt.md).
 
 It never overwrites: if the profile exists, it says so and changes nothing. If it fails part-way (full disk, a file where a folder belongs) it removes only the half-made folder it just created.
 

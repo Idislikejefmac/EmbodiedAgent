@@ -37,7 +37,7 @@ from typing import NoReturn
 from .limits import (CONFIG_MAX_BYTES, CONFIG_PATH_MAX_CHARS, CONFIG_TEXT_MAX_CHARS, EGRESS_HOSTS_MAX,
                      ENV_FILE_MAX_BYTES, ENV_KEY_MAX_CHARS, ENV_VALUE_MAX_CHARS, LLM_REQUESTS_PER_HOUR_MAX,
                      LOG_CAPTURE_DAYS_MAX, LOG_CAPTURE_MB_MAX, MODEL_NAME_MAX_CHARS, OUTPUT_TOKENS_SANITY_MAX,
-                     PORT_MAX, PORT_MIN, REQUEST_LOG_RETENTION_DAYS, SPEND_CAP_SANITY_MAX)
+                     PORT_MAX, PORT_MIN, REQUEST_LOG_RETENTION_DAYS, SPEND_CAP_SANITY_MAX, STT_CPU_THREADS_MAX)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = REPO_ROOT / "config.toml"
@@ -46,6 +46,10 @@ DEFAULT_ENV = REPO_ROOT / ".env"
 # Keys the brain may use. Presence is reported by name only.
 KNOWN_KEYS = ("ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY", "DEEPGRAM_API_KEY")
 BODY_KINDS = ("sim", "phone")
+STT_ENGINES = ("whisper-local",)
+STT_MODELS = ("base.en", "small.en")  # English only (plan P2-04); the names match tools/fetch_stt_model.py
+STT_DEVICES = ("cpu", "auto")  # "auto" tries CUDA only if a one-time self-test passes, else CPU (docs/stt.md)
+STT_COMPUTE_TYPES = ("int8", "float32")
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -124,6 +128,18 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True)
+class SttConfig:
+    """Local speech to text (docs/stt.md). Nothing here is a network setting: the engine never uses the network."""
+
+    engine: str = "whisper-local"
+    model: str = "base.en"
+    device: str = "cpu"
+    compute_type: str = "int8"
+    cpu_threads: int = 0  # 0: let the engine choose
+    model_dir: Path = Path("data/models/stt")  # parse_config makes it absolute (under the config's folder)
+
+
+@dataclass(frozen=True)
 class Profile:
     """Whose setup this is (docs/profiles.md). The default profile (name None) is Jeff's: the repo-root config.toml
     and .env, data/, and keys from the environment or that .env. A named profile owns the folder
@@ -185,6 +201,7 @@ class Config:
     egress: EgressConfig
     paths: PathsConfig
     logging: LoggingConfig
+    stt: SttConfig
     source: str  # where it came from (a file path), for messages
     base: Path  # the folder relative paths were resolved under
     profile: Profile = field(default_factory=Profile)  # whose setup this is (the default profile is Jeff's)
@@ -286,6 +303,9 @@ SCHEMA: dict[str, dict[str, object]] = {
     "paths": {"data_dir": _path_text, "secrets_dir": _path_text},
     "logging": {"full_prompts": _flag, "capture_max_mb": _whole(1, LOG_CAPTURE_MB_MAX),
                 "capture_max_days": _whole(1, LOG_CAPTURE_DAYS_MAX)},
+    "stt": {"engine": _choice(STT_ENGINES), "model": _choice(STT_MODELS), "device": _choice(STT_DEVICES),
+            "compute_type": _choice(STT_COMPUTE_TYPES), "cpu_threads": _whole(0, STT_CPU_THREADS_MAX),
+            "model_dir": _path_text},
 }
 
 
@@ -366,6 +386,29 @@ def _confine(text: str, where: str, source: str, base: Path, *, profile_ok: bool
     return resolved
 
 
+def _confine_models(text: str, where: str, source: str, base: Path) -> Path:
+    """[stt] model_dir: like data_dir (relative, inside the config's folder), except that an absolute folder is also
+    allowed inside the repository (so a profile can point at the shared models in the repo's data/models/stt) or
+    inside the user profile. Never `..`; a link that leaves these places is refused."""
+    p = Path(text)
+    if not p.anchor:
+        return _confine(text, where, source, base, profile_ok=False)
+    if not p.is_absolute():  # "C:" (the current folder of a drive) or "\x" (the current drive's root): not a full path
+        raise ConfigError(source, where, "must be a folder inside the project, or a full path inside it or your user profile")
+    if ".." in p.parts or ".." in re.split(r"[\\/]", text):
+        raise ConfigError(source, where, "may not contain '..' (paths must stay inside their folder)")
+    try:
+        resolved = p.resolve()
+        home = Path.home().resolve()
+    except (OSError, ValueError, RuntimeError) as e:
+        raise ConfigError(source, where, f"is not a usable path ({type(e).__name__})") from None
+    for root in (REPO_ROOT, home, base):
+        if resolved == root or _inside(resolved, root):
+            return resolved
+    raise ConfigError(source, where, f"an absolute folder must be inside this project ({REPO_ROOT}) or your user "
+                                     f"profile ({home})")
+
+
 def parse_config(raw: Mapping[str, object], *, source: str = "config", base: Path | None = None,
                  profile: Profile | None = None) -> Config:
     """THE GATE: turn a parsed config table into a Config, or raise ConfigError. `base` is the folder
@@ -385,6 +428,7 @@ def parse_config(raw: Mapping[str, object], *, source: str = "config", base: Pat
     d = CapsConfig()
     m = ModelsConfig()
     lg = LoggingConfig()
+    st = SttConfig()
     data_dir = folder(("paths", "data_dir")) or _confine("data", "[paths] data_dir", source, root, profile_ok=False)
     return Config(
         network=NetworkConfig(get(("network", "host"), NetworkConfig.host), get(("network", "port"), NetworkConfig.port)),
@@ -401,6 +445,11 @@ def parse_config(raw: Mapping[str, object], *, source: str = "config", base: Pat
         logging=LoggingConfig(get(("logging", "full_prompts"), lg.full_prompts),
                               get(("logging", "capture_max_mb"), lg.capture_max_mb),
                               get(("logging", "capture_max_days"), lg.capture_max_days)),
+        stt=SttConfig(get(("stt", "engine"), st.engine), get(("stt", "model"), st.model),
+                      get(("stt", "device"), st.device), get(("stt", "compute_type"), st.compute_type),
+                      get(("stt", "cpu_threads"), st.cpu_threads),
+                      _confine_models(str(get(("stt", "model_dir"), str(st.model_dir).replace("\\", "/"))),
+                                      "[stt] model_dir", source, root)),
         source=source, base=root, profile=profile or Profile())
 
 

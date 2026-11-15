@@ -61,6 +61,17 @@ The agent has no tools except those listed in `brain/agent/tools.v0.json`; `docs
 
 The agent loop (card P0-07) against SimBody with a scripted stand-in model: no key, no network, no spend. Type a line (or `/poke`, `/look <question>`, `/quit`); the reply is spoken through the body and the live event trace shows every step. `--as-app` feeds the lines as app-channel (untrusted) turns; `--live` uses the real model API and needs `ANTHROPIC_API_KEY`, `[models] allow_live_calls = true` and the spend caps in `[caps]`. Details: `docs/agent_loop.md`.
 
+## Speech to text (local)
+
+```powershell
+.\.venv\Scripts\python -m pip install -e ".[stt]"                       # faster-whisper and friends (CPU only, versions pinned)
+.\.venv\Scripts\python tools\fetch_stt_model.py                          # one-time, verified download of base.en and small.en (about 630 MB)
+.\.venv\Scripts\python -m brain stt-check some-speech.wav --model base.en # 16 kHz mono 16-bit WAV, at most 15 s
+.\.venv\Scripts\python -m pytest tests\test_stt_real_model.py --run-real-model   # the tests that load the real models
+```
+
+Transcription runs on this laptop with faster-whisper (card P2-04, STT half); no audio and no text leaves it, and the brain never uses the network for it. The models live in `data/models/stt/` (git-ignored) and are checked against `lock.json` before every load. On this CPU a short utterance takes about 0.5 s with `base.en` and about 1.5 s with `small.en`, so the plan's 300 ms median target is not met on the CPU. Everything (config keys, how it is verified, measured numbers, the GPU and driver note, limits): `docs/stt.md`.
+
 ## Profiles: a setup for each person
 
 ```powershell

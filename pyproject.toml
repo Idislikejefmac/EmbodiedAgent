@@ -17,6 +17,17 @@ dependencies = [
 [project.optional-dependencies]
 # Dev only (DEC-DEV-DEPS). A hash-pinned dev lockfile is a later task (H-03); until then these are lower bounds.
 dev = ["pytest>=8", "mypy>=1.13", "hypothesis>=6.170"]
+# Local speech to text (card P2-04, docs/stt.md): installed 15 Nov 2026 on Python 3.13 / Windows; pinned to what was tested.
+# No torch, no CUDA packages: the CPU path only. Models are fetched once by tools/fetch_stt_model.py, not by pip.
+stt = [
+    "faster-whisper==1.2.1",
+    "ctranslate2==4.8.5",
+    "onnxruntime==1.32.0",  # the bundled voice-activity model
+    "tokenizers==0.23.3",
+    "huggingface-hub==2.4.0",  # used only by tools/fetch_stt_model.py
+    "av==19.0.2",
+    "numpy==2.5.4",
+]
 
 [tool.setuptools.packages.find]
 include = ["brain*"]
@@ -30,6 +41,7 @@ markers = [
     "chaos: part of the chaos and boundary harness (tools/chaos; card X-01)",
     "slow: long-running (chaos --full and the like); skipped unless --run-slow",
     "real_vendor: would contact a real vendor or the real model; never collected into a normal run (C8); only with --run-real-vendor",
+    "real_model: loads the downloaded local speech models (data/models/stt); never collected into a normal run; only with --run-real-model",
     "gate(name, limit=None, edge=None): an E1b edge test of a gate in tools/chaos/manifest.toml (below, at, above, wrong_type)",
     "trace(*ids, promises=(), risks=()): the T- ids, promises and R- ids this test covers (tools/trace.py)",
 ]
@@ -38,8 +50,8 @@ markers = [
 # Run with:  python -m mypy   (checks the packages below in strict mode; tests/test_typing.py runs it too)
 python_version = "3.13"
 strict = true
-files = ["brain/body", "brain/agent", "brain/obs", "brain/config.py", "brain/profiles.py", "brain/egress.py", "brain/limits.py", "brain/logsafe.py", "brain/chat.py",
-         "brain/transport", "brain/__main__.py", "tools/chaos", "tools/migrate.py", "tools/lint.py"]
+files = ["brain/body", "brain/agent", "brain/obs", "brain/voice", "brain/config.py", "brain/profiles.py", "brain/egress.py", "brain/limits.py", "brain/logsafe.py", "brain/chat.py",
+         "brain/transport", "brain/__main__.py", "tools/chaos", "tools/migrate.py", "tools/lint.py", "tools/fetch_stt_model.py", "tests/fakes/stt.py"]
 explicit_package_bases = true  # tools/ has no __init__.py
 follow_imports = "silent"  # tools/trace.py is imported but not yet checked (H-13 list below)
 
@@ -52,4 +64,10 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true
+
+# faster-whisper, ctranslate2 and huggingface_hub are imported lazily (brain/voice/stt.py, tools/fetch_stt_model.py);
+# they are not followed here: their own types are not what is checked.
+[[tool.mypy.overrides]]
+module = ["faster_whisper", "faster_whisper.*", "ctranslate2", "ctranslate2.*", "huggingface_hub", "huggingface_hub.*", "numpy", "numpy.*"]
 ignore_missing_imports = true

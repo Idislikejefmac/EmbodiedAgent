@@ -148,7 +148,7 @@ _ALL = [
        "only its record id and byte count are here, never the text", card="P0-07"),
     # ---- reserved for later cards: named so they only have to emit them ----
     _t("speech.stt", "speech", "INFO", "a transcript arrived (vendor, ms, character count; never the words)",
-       status="reserved", card="P2-02"),
+       card="P2-04"),
     _t("speech.tts", "speech", "INFO", "speech was synthesized (vendor, ms, character count)", status="reserved",
        card="P2-01"),
     _t("identity.decision", "identity", "INFO", "a recognition decision (band, evidence kinds; never a template)",
@@ -220,6 +220,7 @@ ENTRY_COVERAGE: dict[str, tuple[str, ...]] = {
     "cli_command.brain.pair": ("pair.result",),
     "cli_command.brain.body-check": ("tool.call", "tool.result"),
     "cli_command.brain.demo-trace": ("demo.step", "turn.start", "turn.end"),
+    "cli_command.brain.stt-check": ("speech.stt",),
     "cli_command.brain.chat": ("turn.start", "turn.end", "model.call_start", "model.call_end", "cost.update"),
     "message.speak_local": ("body.speak", "body.request"),
 }

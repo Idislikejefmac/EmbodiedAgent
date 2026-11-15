@@ -459,7 +459,7 @@ entry = [
   { id = "event_type.queue.busy", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
   { id = "event_type.queue.drop", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
   { id = "event_type.sensitivity.decision", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
-  { id = "event_type.speech.stt", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
+  { id = "event_type.speech.stt", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
   { id = "event_type.speech.tts", kind = "event_type", card = "X-02", boundary = "B10", status = "reserved" },
   { id = "event_type.startup.refused", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
   { id = "event_type.startup.self_test", kind = "event_type", card = "X-02", boundary = "B10", status = "live" },
@@ -524,6 +524,27 @@ entry = [
   { id = "file_site.brain/profiles.py:_port_of", kind = "file_site", card = "SYS", boundary = "B10" },
   { id = "file_site.brain/profiles.py:_profile_folders", kind = "file_site", card = "SYS", boundary = "B10" },
   { id = "file_site.brain/profiles.py:create_profile", kind = "file_site", card = "SYS", boundary = "B10" },
+
+  # ---- P2-04 local speech to text (docs/stt.md) ----
+  { id = "cli_arg.brain.stt-check.--model", kind = "cli_arg", card = "P2-04", boundary = "B11" },
+  { id = "cli_arg.brain.stt-check.--profile", kind = "cli_arg", card = "P2-04", boundary = "B11" },
+  { id = "cli_arg.brain.stt-check.file", kind = "cli_arg", card = "P2-04", boundary = "B11" },
+  { id = "cli_command.brain.stt-check", kind = "cli_command", card = "P2-04", boundary = "B11" },
+  { id = "config_key.stt", kind = "config_key", card = "P2-04", boundary = "B10" },
+  { id = "config_key.stt.compute_type", kind = "config_key", card = "P2-04", boundary = "B10" },
+  { id = "config_key.stt.cpu_threads", kind = "config_key", card = "P2-04", boundary = "B10" },
+  { id = "config_key.stt.device", kind = "config_key", card = "P2-04", boundary = "B10" },
+  { id = "config_key.stt.engine", kind = "config_key", card = "P2-04", boundary = "B10" },
+  { id = "config_key.stt.model", kind = "config_key", card = "P2-04", boundary = "B10" },
+  { id = "config_key.stt.model_dir", kind = "config_key", card = "P2-04", boundary = "B10" },
+  { id = "file_site.brain/voice/modelstore.py:_read_json_capped", kind = "file_site", card = "P2-04", boundary = "B10" },
+  { id = "file_site.brain/voice/modelstore.py:check_folder", kind = "file_site", card = "P2-04", boundary = "B10" },
+  { id = "file_site.brain/voice/modelstore.py:git_blob_sha1_of", kind = "file_site", card = "P2-04", boundary = "B10" },
+  { id = "file_site.brain/voice/modelstore.py:sha256_of", kind = "file_site", card = "P2-04", boundary = "B10" },
+  { id = "file_site.brain/voice/modelstore.py:verify_model", kind = "file_site", card = "P2-04", boundary = "B10" },
+  { id = "file_site.brain/voice/modelstore.py:write_lock", kind = "file_site", card = "P2-04", boundary = "B10" },
+  { id = "file_site.brain/voice/wavcheck.py:read_wav_pcm16k", kind = "file_site", card = "P2-04", boundary = "B10" },
+  { id = "net_module.brain/voice/stt.py:subprocess", kind = "net_module", card = "P2-04", boundary = "B13" },
 ]
 
 # ---- gate functions (docs/testing/00 section 4.4: E1a and E1b read this table) ---------------------------

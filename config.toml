@@ -56,3 +56,13 @@ data_dir = "data"
 full_prompts = true
 capture_max_mb = 200     # 1 to 1024
 capture_max_days = 14    # 1 to 90
+
+[stt]
+# Local speech to text (card P2-04; docs/stt.md). Everything runs on this laptop: no audio and no text leaves it.
+# Models are fetched once by tools/fetch_stt_model.py and verified against data/models/stt/lock.json before every load.
+engine = "whisper-local"
+model = "base.en"           # "base.en" or "small.en" (English only)
+device = "cpu"              # "cpu", or "auto" (tries the GPU only if a one-time self-test passes, else falls back to CPU)
+compute_type = "int8"       # "int8" (fast on CPU) or "float32"
+cpu_threads = 0             # 0 = automatic; 1 to 32
+model_dir = "data/models/stt"   # inside this project (an absolute folder is allowed inside the project or your user profile)

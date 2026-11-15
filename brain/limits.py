@@ -197,3 +197,29 @@ CRASH_FILES_KEPT = 20  # crash reports kept in data/crash.
 PROFILE_NAME_MAX_CHARS = 32  # a profile name: a letter, then letters, digits, _ or - (also keeps folder names short).
 PROFILE_PORT_FIRST = 8766  # `profile create` picks the first port from here that no other profile (or the root config) uses.
 PROFILES_MAX = 100  # profiles listed or scanned for ports; more folders than this are ignored (a bound, not a goal).
+# ---- A.6 speech to text, local engine (P2-04 STT half; docs/stt.md). Provisional unless marked Appendix A. -------
+AUDIO_IN_RATE_HZ = 16_000  # the STT gate takes ONLY 16 kHz mono s16le (Appendix A.5; the wire allows 8 to 192 kHz).
+UTTERANCE_MAX_S = 15  # one utterance, forced cut (Appendix A.5; plan P2-03). More audio is refused, never trimmed.
+UTTERANCE_MIN_MS = 300  # an utterance shorter than this is a click or a cough: a clean empty result (Appendix A.5).
+UTTERANCE_MAX_BYTES = UTTERANCE_MAX_S * AUDIO_IN_RATE_HZ * 2  # 480,000 bytes of mono s16le: the buffer never exceeds this.
+STT_CHUNKS_MAX = 2_000  # chunks fed to one utterance (188 nominal 80 ms chunks fit in 15 s): a flood of tiny ones stops here.
+STT_MAX_CHARS = 2_000  # one transcript after cleaning (Appendix A.5 STT_MAX_CHARS; 15 s of speech is far less).
+STT_DECODE_TIMEOUT_S = 20.0  # hard limit on one decode: a 15 s utterance on base.en or small.en CPU takes a few seconds.
+STT_PENDING_MAX = 2  # decodes admitted at once: one running and one waiting; the next gets SttBusy (bounded queue).
+STT_BEAM_SIZE = 1  # greedy decoding: fastest, deterministic with temperature 0; measured against beam 5 in docs/stt.md.
+STT_NO_SPEECH_MAX = 0.6  # Whisper's own rule: a segment with no_speech_prob above this AND a weak avg_logprob is dropped.
+STT_LOGPROB_FLOOR = 1.0  # ... and avg_logprob below MINUS this (Whisper's logprob_threshold default is -1.0).
+STT_COMPRESSION_MAX = 2.4  # a segment whose text compresses better than this is a repetition loop (Whisper's default).
+STT_REPEAT_MAX = 4  # the same 1 to 4 word phrase this many times in a row is a hallucination loop; cut to two copies.
+STT_SILENCE_RMS = 30  # RMS (s16 units, about -60 dBFS) below which audio is digital silence: no decode, empty result.
+STT_LOAD_TIMEOUT_S = 60.0  # loading and verifying a model (first use) may take this long, on top of the decode timeout.
+STT_UNAVAILABLE_S = 30.0  # after a model fails to load, further requests are refused at once for this long (no retry storm).
+STT_PHANTOM_LOGPROB_FLOOR = 0.5  # a known phantom phrase ('thank you.') alone is dropped when avg_logprob is below MINUS this ...
+STT_PHANTOM_NO_SPEECH = 0.3  # ... or no_speech_prob is above this (a clearly spoken 'thank you' passes).
+STT_CPU_THREADS_MAX = 32  # sanity bound on [stt] cpu_threads (0 = automatic).
+STT_MODEL_FILE_MAX_BYTES = 1024**3  # one model file (small.en model.bin is 484 MB); a larger file is refused before it is read.
+STT_MODEL_FILES_MAX = 16  # entries in one model folder; more is not a faster-whisper model.
+STT_LOCK_MAX_BYTES = 64 * 1024  # data/models/stt/lock.json, checked before it is parsed.
+STT_JSON_FILE_MAX_BYTES = 8 * 1024**2  # config.json, tokenizer.json and friends: parsed to prove they are JSON.
+STT_CUDA_PROBE_TIMEOUT_S = 90.0  # [stt] device = "auto": the one-time CUDA self-test (a child process) may take this long.
+STT_WAV_MAX_BYTES = 1024**2  # `stt-check` refuses a WAV file larger than this before reading it (15 s is 480 kB).

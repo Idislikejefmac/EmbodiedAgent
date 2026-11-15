@@ -76,6 +76,10 @@ minimal example and a `@reproduce_failure(...)` line; the profiles are derandomi
 `XFAIL` is a recorded defect (`known_defect="X01B-nn: ..."`, listed in `tests/chaos/test_chaos_known_defects.py`);
 `XPASS` means it is fixed: remove the marker and move the entry to FIXED in the same commit.
 
+## Local speech to text
+
+Card P2-04's experiments (`tools/chaos/cases/stt.py`) run against a scripted fake engine and a fake model, in the sandbox, with no network and no real data: `P2-04.stt.engine`, `.model_store`, `.wav_cli`, `.config`, `.real_engine`. The last one loads the real models only when `EMBODIED_CHAOS_REAL_MODEL=1` is set and the run may read the real data folder (`python -m brain chaos --only P2-04.stt.real_engine --allow-real-data`); `pytest --run-real-model` does that. `python -m brain stt-check` is in the CLI manifest. Details: `docs/stt.md`.
+
 ## What the lints do not cover
 
 E1a (`tools/lint.py e1a`) is the conservative subset of docs/testing/00 section 4.4: in public functions and methods of

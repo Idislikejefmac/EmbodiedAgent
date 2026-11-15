@@ -72,7 +72,7 @@ def test_schema_paths_cover_config_toml():
                 yield from paths(v, prefix + (k,))
     known = set(schema_paths())
     assert set(paths(tomllib.loads(DEFAULT_CONFIG.read_text(encoding="utf-8")))) <= known
-    assert set(SCHEMA) == {"network", "body", "models", "caps", "egress", "paths", "logging"}
+    assert set(SCHEMA) == {"network", "body", "models", "caps", "egress", "paths", "logging", "stt"}
 
 
 # ---- one clear error per problem ----------------------------------------------------------------------------

@@ -46,6 +46,8 @@ def pytest_addoption(parser):
     parser.addoption("--run-real-vendor", action="store_true",
                      help="ALSO run tests marked real_vendor (they need ANTHROPIC_API_KEY and spend real money within "
                           "their own small cap; see tests/test_real_vendor.py)")
+    parser.addoption("--run-real-model", action="store_true",
+                     help="ALSO run tests marked real_model (they load the downloaded speech models from data/models/stt; local only, no network)")
     parser.addoption("--trace-out", metavar="PATH", help="write collected test ids, markers and docstrings "
                                                          "as JSON for tools/trace.py")
 
@@ -53,9 +55,10 @@ def pytest_addoption(parser):
 def pytest_collection_modifyitems(config, items):
     keep, drop = [], []
     real = config.getoption("--run-real-vendor")
+    real_model = config.getoption("--run-real-model")
     for item in items:
-        if (item.get_closest_marker("real_vendor") and not real) or (item.get_closest_marker("slow")
-                                                                     and not config.getoption("--run-slow")):
+        if ((item.get_closest_marker("real_vendor") and not real) or (item.get_closest_marker("real_model") and not real_model)
+                or (item.get_closest_marker("slow") and not config.getoption("--run-slow"))):
             drop.append(item)
         else:
             keep.append(item)
@@ -69,7 +72,7 @@ def pytest_collection_modifyitems(config, items):
             marks = [{"name": m.name, "args": [str(a) for a in m.args],
                       "kwargs": {k: [str(x) for x in v] if isinstance(v, (list, tuple)) else str(v)
                                  for k, v in m.kwargs.items()}}
-                     for m in item.iter_markers() if m.name in ("trace", "gate", "chaos", "slow", "real_vendor")]
+                     for m in item.iter_markers() if m.name in ("trace", "gate", "chaos", "slow", "real_vendor", "real_model")]
             doc = (getattr(item, "function", None).__doc__ or "").strip().splitlines() if hasattr(item, "function") else []
             rows.append({"node": item.nodeid, "markers": marks, "doc": doc[0] if doc else "",
                          "selected": item in keep})
