@@ -16,7 +16,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * P0-05 link screen: brain host:port setting, Connect and Stop, a link-state indicator, and the echo test.
+ * P0-05 link screen: brain host:port setting, Connect and Stop, a link-state indicator, the echo test and the
+ * Poke button (P0-07: sends a `poke` event; the brain answers by speaking through the phone).
  * The link starts only when Connect is pressed. Test hooks for adb live in the debug-only
  * DebugCommandReceiver (src/debug), not here.
  */
@@ -37,6 +38,10 @@ class MainActivity : Activity(), BrainLink.Listener {
         }
         val connect = Button(this).apply { text = "Save and connect"; setOnClickListener { saveAndConnect() } }
         val stop = Button(this).apply { text = "Stop"; setOnClickListener { LinkService.stop(this@MainActivity) } }
+        val poke = Button(this).apply {
+            text = "Poke"
+            setOnClickListener { BrainLink.poke() }  // one event per 3 s at most; says in the log if it was not sent
+        }
         val echoButton = Button(this).apply {
             text = "Echo test (1,000 x 100 kB)"
             setOnClickListener { BrainLink.runEcho(1000, 100 * 1024) }
@@ -56,6 +61,7 @@ class MainActivity : Activity(), BrainLink.Listener {
             addView(target)
             addView(connect)
             addView(stop)
+            addView(poke)
             addView(echoButton)
             addView(arCheck)
             addView(logView)

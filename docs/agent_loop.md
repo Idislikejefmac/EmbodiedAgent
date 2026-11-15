@@ -159,9 +159,13 @@ arguments.
 
 ## What is pending
 
-- **The body side of plan steps 5 to 7** (the phone is away): Android TextToSpeech for `speak_local`, wiring it
-  into the app's hello capabilities, and a Poke button sending the `poke` event. The brain side is built: LinkBody
-  offers `speak_text` when the connected body lists `speak_local` and sends it, waiting for the ack; a `poke` body
-  event starts a turn through the PokeGate (one per POKE_MIN_INTERVAL_S, none while one runs).
+- **The body side of plan steps 5 to 7 is built** (Android app, `Speech.kt` and `AndroidSpeech.kt`): the phone speaks
+  `speak_local` with TextToSpeech and has a Poke button. Phone speech path: the loop's `speak` tool calls LinkBody
+  `speak_text`, which sends `speak_local` (validated by the phone against the schema) and waits up to 5 s for the ack.
+  The phone acks when the speech has started, or at once when the text queues behind speech already playing; it
+  answers `busy` (queue of 8 full, interrupted, or no start within 4 s), `internal` (engine failure) or `bad_payload`,
+  which LinkBody turns into `BodyError(refused)`. `speak_local` is in the phone's hello only while its engine is usable,
+  so `speak_text` exists only then. A `poke` event (button, at most one per 3 s on the phone) starts a turn through the
+  PokeGate. Verified on a Samsung S25 Edge: ten pokes gave ten turns and ten spoken replies.
 - **The real-vendor test and the live checklist item** ("one real call; the only destination is
   api.anthropic.com:443") need the key: `pytest tests\test_real_vendor.py --run-real-vendor`.

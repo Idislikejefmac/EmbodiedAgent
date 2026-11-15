@@ -149,6 +149,7 @@ object Protocol {
         if (type == "ack" && o.isNull("reply_to")) throw ProtocolException("bad_envelope", "ack without reply_to", replyTo = id)
         when (type) {
             "command" -> validateCommand(payload, id)
+            "speak_local" -> validateSpeak(payload, id)
             "hello" -> validateHello(payload, id)
             "auth" -> if (!isHex256(payload.opt("mac"))) {
                 throw ProtocolException("bad_payload", "auth needs a mac", true, id)
@@ -166,6 +167,12 @@ object Protocol {
                 throw ProtocolException("bad_payload", "echo needs seq, text, byte_length, crc32", replyTo = id)
             }
         }
+    }
+
+    /** speak_local (section 4.9): the same gate the speech code uses, so there is one definition of valid. */
+    private fun validateSpeak(payload: JSONObject, id: Long) {
+        val parsed = SpeakRequest.parse(payload.opt("utterance_id"), payload.opt("text"), payload.opt("interrupt"))
+        if (parsed is SpeakRequest.Parsed.Bad) throw ProtocolException("bad_payload", "speak_local: ${parsed.reason}", replyTo = id)
     }
 
     private fun validateHello(payload: JSONObject, id: Long) {

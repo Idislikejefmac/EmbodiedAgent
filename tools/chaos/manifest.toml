@@ -374,6 +374,8 @@ entry = [
   { id = "android_action.debug.CONNECT", kind = "android_action", card = "P0-05", boundary = "B12" },
   { id = "android_action.debug.ECHO", kind = "android_action", card = "P0-05", boundary = "B12" },
   { id = "android_action.debug.PAIR", kind = "android_action", card = "P0-05", boundary = "B12" },
+  { id = "android_action.debug.POKE", kind = "android_action", card = "P0-07", boundary = "B12" },
+  { id = "android_action.debug.SPEAK", kind = "android_action", card = "P0-07", boundary = "B12" },
   { id = "android_action.debug.RECONNECT", kind = "android_action", card = "P0-05", boundary = "B12" },
   { id = "android_action.debug.STOP", kind = "android_action", card = "P0-05", boundary = "B12" },
   { id = "android_action.debug.UNPAIR", kind = "android_action", card = "P0-05", boundary = "B12" },

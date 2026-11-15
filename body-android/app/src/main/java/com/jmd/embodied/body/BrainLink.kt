@@ -56,6 +56,10 @@ object BrainLink {
     private const val CLOCK_INFO_EVERY = 30
     private const val ECHO_WINDOW = 4
     private const val ECHO_STALL_MS = 15_000L
+    private const val SPEECH_INIT_WAIT_MS = 1_000L  // the brain wants the hello within 2 s of connecting
+    private const val SPEECH_INIT_POLL_MS = 50L
+    const val POKE_MIN_INTERVAL_MS = 3_000L
+    private val BASE_CAPABILITIES = listOf("event", "echo")
 
     enum class State { STOPPED, NOT_PAIRED, CONNECTING, CONNECTED, WAITING }
     private enum class Phase { OPENING, HELLO_SENT, AUTH_SENT, READY }
@@ -126,6 +130,8 @@ object BrainLink {
     private var sessionId = ""
     private var echo: EchoRun? = null
     private val peerErrors = ArrayDeque<Long>()
+    private val pokeLimiter = RateLimiter(POKE_MIN_INTERVAL_MS)
+    private var helloOfferedSpeech = false
 
     // ---- public API (any thread) ----
 
@@ -137,6 +143,8 @@ object BrainLink {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EmbodiedBody:link").apply { setReferenceCounted(false) }
         }
         token = LinkSettings.loadToken(ctx)
+        AndroidSpeech.onUsableChanged = { usable -> post { onSpeechUsableChanged(usable) } }
+        AndroidSpeech.acquire(ctx)  // starts the text-to-speech engine; the hello offers speak_local only if it is usable
         if (token == null) {
             stopInternal("not paired with a brain: run `python -m brain pair` on the laptop", State.NOT_PAIRED)
             return@post
@@ -160,6 +168,22 @@ object BrainLink {
     fun reconnect() = post { if (started) drop("reconnect requested", reconnectNow = true) }
 
     fun runEcho(count: Int, bytes: Int) = post { startEcho(count, bytes) }
+
+    /**
+     * Send the `poke` event (the Poke button, or the debug POKE command). At most one per
+     * [POKE_MIN_INTERVAL_MS]; a poke that is too soon, or made while not connected, is dropped, never queued.
+     */
+    fun poke() = post {
+        when {
+            phase != Phase.READY -> log("poke ignored: not connected")
+            !pokeLimiter.tryAcquire(SystemClock.elapsedRealtime()) ->
+                log("poke ignored: at most one every ${POKE_MIN_INTERVAL_MS / 1000} s")
+            else -> {
+                sendCritical("event", JSONObject().put("name", "poke").put("data", JSONObject()))
+                log("poke sent")
+            }
+        }
+    }
 
     /** Debug builds only: shorten the give-up time for the next run (5 s to 3 min); reset by stop. */
     fun setUnreachableStopMs(context: Context, ms: Long) = post {
@@ -220,6 +244,32 @@ object BrainLink {
     }
 
     private fun onOpen() {
+        val myGen = gen
+        openedMs = SystemClock.elapsedRealtime()
+        awaitSpeechThenHello(myGen)
+    }
+
+    private var openedMs = 0L
+
+    /** Give a still-starting speech engine a moment (at most [SPEECH_INIT_WAIT_MS]) so the hello can offer it. */
+    private fun awaitSpeechThenHello(myGen: Int) {
+        if (myGen != gen || phase != Phase.OPENING) return
+        if (AndroidSpeech.initPending && SystemClock.elapsedRealtime() - openedMs < SPEECH_INIT_WAIT_MS) {
+            exec.schedule(guarded { awaitSpeechThenHello(myGen) }, SPEECH_INIT_POLL_MS, TimeUnit.MILLISECONDS)
+            return
+        }
+        sendHello()
+    }
+
+    /** The engine became usable after our hello went out without speak_local: reconnect once to offer it. */
+    private fun onSpeechUsableChanged(usable: Boolean) {
+        if (started && usable && phase != Phase.OPENING && !helloOfferedSpeech) {
+            log("speech engine became ready after the hello: reconnecting to offer speak_local")
+            drop("speech engine ready", reconnectNow = true)
+        }
+    }
+
+    private fun sendHello() {
         nextId = 1
         peerLastId = 0
         idGaps = 0
@@ -231,12 +281,15 @@ object BrainLink {
         livenessMs = DEFAULT_LIVENESS_MS
         maxBinary = BinaryFrame.MAX_DATA.toLong()
         lastRxMs = SystemClock.elapsedRealtime()
+        val speechUsable = AndroidSpeech.usable
+        val capabilities = SpeechController.helloCapabilities(BASE_CAPABILITIES, speechUsable)
+        helloOfferedSpeech = speechUsable
         val payload = JSONObject()
             .put("role", "body")
             .put("software", "embodied-body/${BuildConfigInfo.versionName(appContext)}")
             .put("versions", JSONArray(listOf(Protocol.VERSION)))
             .put("boot_id", bootId)
-            .put("capabilities", JSONArray(listOf("event", "echo")))
+            .put("capabilities", JSONArray(capabilities))
             .put("commands", JSONArray(Protocol.IMPLEMENTED_COMMANDS))
             .put("auth", JSONObject().put("nonce", LinkAuth.newNonce()))
         helloId = sendCritical("hello", payload) ?: return
@@ -307,6 +360,8 @@ object BrainLink {
         val wasStarted = started
         started = false
         teardown(closeCode, "body stopped")
+        AndroidSpeech.onUsableChanged = null
+        AndroidSpeech.release()
         stable = false
         downSinceMs = 0
         unreachableStopMs = UNREACHABLE_STOP_MS  // a debug override lasts one run
@@ -567,6 +622,7 @@ object BrainLink {
                 echo?.let { onEchoReply(it, replyTo, payload, data) }
             }
             "command" -> handleCommand(id, payload)
+            "speak_local" -> handleSpeak(id, payload)
             "error" -> {
                 Log.w(TAG, "brain error ${Protocol.quote(payload.optString("code"))} (reply_to=$replyTo): ${Protocol.quote(payload.optString("message"))}")
                 echo?.let { run -> if (replyTo != null && run.pending.remove(replyTo) != null) { run.corrupt++; pumpEcho(run) } }
@@ -660,6 +716,28 @@ object BrainLink {
             }
             else -> sendError(Protocol.ProtocolException("not_implemented", "$name is allowlisted but not built yet", replyTo = id))
         }
+    }
+
+    /** speak_local: validateFromBrain already refused bad payloads (bad_payload); this hands the text to the speech queue. */
+    private fun handleSpeak(id: Long, payload: JSONObject) {
+        val parsed = SpeakRequest.parse(payload.opt("utterance_id"), payload.opt("text"), payload.opt("interrupt"))
+        if (parsed !is SpeakRequest.Parsed.Ok) {
+            sendError(Protocol.ProtocolException("bad_payload", "speak_local payload is not valid", replyTo = id))
+            return
+        }
+        val req = parsed.request
+        val myGen = gen  // an answer must not reach a later connection, where this id means something else
+        log("speak_local ${req.utteranceId}: ${req.text.length} chars, interrupt=${req.interrupt}")
+        AndroidSpeech.submit(req, object : SpeechReply {
+            override fun ack() = post {
+                if (myGen == gen && phase == Phase.READY) sendCritical("ack", JSONObject().put("status", "ok"), replyTo = id)
+            }
+
+            override fun refuse(code: String, message: String) = post {
+                log("speak_local ${req.utteranceId} not spoken: $code ($message)")
+                if (myGen == gen && phase == Phase.READY) sendError(Protocol.ProtocolException(code, message, replyTo = id))
+            }
+        })
     }
 
     // ---- wake lock: held only while connected, self-expiring ----

@@ -108,7 +108,7 @@ class HostileCorpusTest {
         "bin_ts_9007199254740993" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
         "bin_ts_9223372036854775807" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
 
-        // 4. Kotlin does not check payloads against the schema (only auth.mac, error.code/fatal, echo, command, hello role/session_id/nonce/versions). KOTLIN LOOSER: field types, ranges, control characters and lengths in ack, error, hello, audio_out, speak_local, echo that Python refuses as bad_payload reach the handlers.
+        // 4. Kotlin does not check payloads against the schema (only auth.mac, error.code/fatal, echo, command, speak_local (P0-07), hello role/session_id/nonce/versions). KOTLIN LOOSER: field types, ranges, control characters and lengths in ack, error, hello, audio_out, echo that Python refuses as bad_payload reach the handlers.
         "ack_brain_payload_empty" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
         "ack_brain_payload_ok_result_list" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
         "ack_brain_payload_status_bad" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
@@ -148,18 +148,6 @@ class HostileCorpusTest {
         "mut10_audio_out_brain_payload_seq_obj" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
         "mut10_audio_out_brain_payload_utterance_id_null" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
         "mut10_audio_out_brain_payload_utterance_id_obj" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "mut10_audio_out_brain_type_speak_local" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "mut11_speak_local_brain_payload_interrupt_null" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "mut11_speak_local_brain_payload_interrupt_str" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "mut11_speak_local_brain_payload_utterance_id_float" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "mut13_command_brain_type_speak_local" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "speak_frame_about_65536" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "speak_text_4000" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "uni_speak_text_bell" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "uni_speak_text_del" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "uni_speak_text_esc" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "uni_speak_text_newline" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
-        "uni_speak_text_nul" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
 
         // 5. hello.versions and integer spelling: Kotlin is stricter than Python's schema.
         "hello_brain_versions_only1" to "hello.versions [1] (no 0): Kotlin refuses unsupported_version; Python's schema accepts it. KOTLIN STRICTER (arguably right: the brain does not speak v0)",

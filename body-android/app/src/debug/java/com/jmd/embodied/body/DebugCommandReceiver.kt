@@ -18,6 +18,8 @@ import android.util.Log
  *   ... -a com.jmd.embodied.body.debug.RECONNECT
  *   ... -a com.jmd.embodied.body.debug.STOP
  *   ... -a com.jmd.embodied.body.debug.UNPAIR
+ *   ... -a com.jmd.embodied.body.debug.POKE     (the Poke button: a `poke` event, at most one per 3 s)
+ *   ... -a com.jmd.embodied.body.debug.SPEAK    (says a short test phrase locally; no brain needed)
  */
 class DebugCommandReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -68,6 +70,8 @@ class DebugCommandReceiver : BroadcastReceiver() {
                 BrainLink.runEcho(count, bytes)
                 resultData = "echo $count x $bytes"
             }
+            "POKE" -> { BrainLink.poke(); resultData = "poke requested" }
+            "SPEAK" -> { AndroidSpeech.speakTest(ctx, TEST_PHRASE); resultData = "speaking" }
             "RECONNECT" -> { BrainLink.reconnect(); resultData = "reconnect" }
             "STOP" -> { LinkService.stop(ctx); resultData = "stopping" }
             else -> Log.w(BrainLink.TAG, "debug: unknown action ignored")
@@ -76,5 +80,6 @@ class DebugCommandReceiver : BroadcastReceiver() {
 
     companion object {
         const val PREFIX = "com.jmd.embodied.body.debug."
+        private const val TEST_PHRASE = "Embodied body speaker test."
     }
 }
