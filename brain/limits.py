@@ -193,3 +193,7 @@ MODELS_LISTED_MAX = 500  # model ids read from the API's model list at the live 
 STATE_PENDING_MAX = 64  # pending request ids kept in data/state.json.
 STATE_QUARANTINE_KEPT = 5  # quarantined (corrupt) state files kept for inspection.
 CRASH_FILES_KEPT = 20  # crash reports kept in data/crash.
+# ---- A.5 profiles: one setup per person (docs/profiles.md). Provisional. ---------------------------------------
+PROFILE_NAME_MAX_CHARS = 32  # a profile name: a letter, then letters, digits, _ or - (also keeps folder names short).
+PROFILE_PORT_FIRST = 8766  # `profile create` picks the first port from here that no other profile (or the root config) uses.
+PROFILES_MAX = 100  # profiles listed or scanned for ports; more folders than this are ignored (a bound, not a goal).

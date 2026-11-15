@@ -239,12 +239,16 @@ async def live_model(config: Config, prices: PriceTable) -> tuple[ModelClient, s
     if not config.models.allow_live_calls:
         raise StartRefused("live model calls are not allowed: set [models] allow_live_calls = true in config.toml "
                            "to consent to paid calls (spend is capped by [caps])")
-    try:
-        key = anthropic_api_key()
+    profile = config.profile
+    try:  # a named profile reads its own .env only (never the environment or the root .env): docs/profiles.md
+        key = anthropic_api_key() if profile.is_default else profile.api_key("ANTHROPIC_API_KEY")
     except ConfigError as e:
         raise StartRefused(f"the .env file cannot be read: {e}") from None
     if not key:
-        raise StartRefused("no ANTHROPIC_API_KEY in .env or the environment; add one (see docs/cost-estimate.md)")
+        raise StartRefused("no ANTHROPIC_API_KEY in .env or the environment; add one (see docs/cost-estimate.md)"
+                           if profile.is_default else
+                           f"no ANTHROPIC_API_KEY in {profile.env_path}; put your key there (see docs/profiles.md). "
+                           "A key set elsewhere on this computer is not used for a profile")
     for model_id in (config.models.live_conversation, config.models.careful_looking):
         if model_id not in prices.models:
             raise StartRefused(f"model {model_id!r} has no price in brain/agent/prices.json, so its cost cannot be "

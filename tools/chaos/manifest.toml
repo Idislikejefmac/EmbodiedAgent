@@ -507,6 +507,21 @@ entry = [
   { id = "file_site.brain/agent/capture.py:PromptCapture.prune", kind = "file_site", card = "P0-07", boundary = "B15" },
   { id = "net_module.brain/egress.py:anthropic", kind = "net_module", card = "P0-07", boundary = "B13" },
   { id = "net_module.brain/egress.py:urllib", kind = "net_module", card = "P0-07", boundary = "B13", note = "urllib.parse only: splits the model API base URL" },
+
+  # ---- SYS: profiles, one setup per person (docs/profiles.md) ----
+  { id = "cli_command.brain.profile", kind = "cli_command", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.body-check.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.chat.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.demo-trace.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.health.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.info.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.pair.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.probe.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.serve.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "cli_arg.brain.watch.--profile", kind = "cli_arg", card = "SYS", boundary = "B11" },
+  { id = "file_site.brain/profiles.py:_port_of", kind = "file_site", card = "SYS", boundary = "B10" },
+  { id = "file_site.brain/profiles.py:_profile_folders", kind = "file_site", card = "SYS", boundary = "B10" },
+  { id = "file_site.brain/profiles.py:create_profile", kind = "file_site", card = "SYS", boundary = "B10" },
 ]
 
 # ---- gate functions (docs/testing/00 section 4.4: E1a and E1b read this table) ---------------------------
@@ -705,6 +720,27 @@ card = "X-01"
 # experiment) fails the run. Android code runs on a phone; its wire parsers are fuzzed on the JVM by
 # body-android HostileCorpusTest (shared corpus protocol/corpus/v0-hostile.json), the rest needs a device.
 
+[[gate]]
+name = "brain.profiles.validate_name"
+boundary = "B11"
+produces = "str (the profile name; ProfileError names the rule it breaks)"
+limits = ["PROFILE_NAME_MAX_CHARS"]
+card = "SYS"
+
+[[gate]]
+name = "brain.profiles.load_profile_config"
+boundary = "B10"
+produces = "Config (the profile's own config.toml, paths confined to profiles/<name>/)"
+limits = ["PROFILE_NAME_MAX_CHARS", "CONFIG_MAX_BYTES"]
+card = "SYS"
+
+[[gate]]
+name = "brain.profiles.create_profile"
+boundary = "B10"
+produces = "(Path, int): the new profile folder and its port; an existing profile is never overwritten"
+limits = ["PROFILE_PORT_FIRST"]
+card = "SYS"
+
 [[exempt]]
 ids = ["android_component.*", "android_action.*"]
 card = "AND"
@@ -783,6 +819,9 @@ HELLO_NAMES_MAX = "spec:protocol/v0.schema.json hello.capabilities maxItems"
 ECHO_TEXT_MAX_CHARS = "spec:protocol/v0.schema.json echo.text maxLength"
 SPOKEN_TEXT_MAX_CHARS = "spec:brain/agent/tools.v0.json speak.text maxLength"
 JSON_MAX_DEPTH = "provisional: not enforced; deep nesting is caught only as RecursionError"
+PROFILE_NAME_MAX_CHARS = "brain.limits:PROFILE_NAME_MAX_CHARS"
+PROFILE_PORT_FIRST = "brain.limits:PROFILE_PORT_FIRST"
+PROFILES_MAX = "brain.limits:PROFILES_MAX"
 
 # ---- X-02: the process launcher starts processes, which the chaos sandbox refuses ----
 [[exempt]]

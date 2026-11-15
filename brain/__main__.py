@@ -1,6 +1,9 @@
 """python -m brain [info|serve|probe|pair|body-check|chat|chaos|watch|health|demo-trace].
 
 info (default): print the version, load config, and report which keys exist.
+Every command takes `--profile NAME` (anywhere on the line): the setup of one person, all from profiles/NAME/
+(config.toml, .env, data/, and its own link token); keys come only from that .env (docs/profiles.md).
+profile: create NAME | list | show NAME (a person's own setup folder).
 chat: the agent loop (card P0-07) with a typed console: SimBody and a scripted model by default; --as-app feeds
     the lines as APP-channel turns; --live uses the real model API (key, consent flag and spend caps required).
 serve: run the protocol v0 WebSocket server (and keep the phone link up unless --no-phone-link), under the
@@ -39,7 +42,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Any
 
 from . import __version__, obs
-from .config import Config, ConfigError, as_config, key_presence, load_config
+from .config import Config, ConfigError, ProfileError, as_config, key_presence, load_config
 from .config import REPO_ROOT as REPO_ROOT  # re-exported for the harness and tests
 from .limits import (BODY_CHECK_WAIT_MAX_S, ECHO_TEST_MAX_BYTES, ECHO_TEST_MAX_COUNT, LOG_FILE_BACKUPS,
                      LOG_FILE_MAX_BYTES, PORT_MAX, PORT_MIN)
@@ -55,13 +58,18 @@ EXIT_CRASH = 1  # something unexpected reached main(); a crash report was writte
 _run: dict[str, Any] = {"data_dir": None, "command": "?"}  # what the outermost crash barrier needs to know
 
 
-def info() -> int:
+def info(config: AnyConfig = None) -> int:
     print(f"embodied-agent brain {__version__}")
-    config = as_config(load_config())
+    config = as_config(load_config() if config is None else config)
+    prof = config.profile
+    if not prof.is_default:
+        print(f"profile: {prof.label} ({config.source})")
     print(f"config: ok (host {config.network.host}, port {config.network.port})")
     print(f"data dir: {data_dir(config)}")  # read-only: info never creates it
     print(f"secrets dir (link token): {secrets_dir(config)}")
-    for name, present in key_presence().items():
+    if not prof.is_default:
+        print(f"keys are read from: {prof.key_source()}")
+    for name, present in (key_presence() if prof.is_default else prof.key_presence()).items():
         print(f"key {name}: {'present' if present else 'missing'}")
     return 0
 
@@ -73,10 +81,12 @@ def data_dir(config: AnyConfig) -> Path:
 
 def secrets_dir(config: AnyConfig) -> Path:
     """Where the link token lives: config [paths] secrets_dir, else a private folder in the user profile."""
-    from .transport.auth import default_secrets_dir
+    from .transport.auth import default_secrets_dir, profile_secrets_dir
 
-    override = as_config(config).paths.secrets_dir
-    return override if override is not None else default_secrets_dir()
+    cfg = as_config(config)
+    if cfg.paths.secrets_dir is not None:
+        return cfg.paths.secrets_dir
+    return default_secrets_dir() if cfg.profile.name is None else profile_secrets_dir(cfg.profile.name)
 
 
 def load_token(config: AnyConfig, *, rotate: bool = False) -> tuple[bytes | None, str]:
@@ -481,12 +491,55 @@ def _float_in_range(low: float, high: float, what: str) -> Callable[[str], float
     return convert
 
 
+def split_profile_arg(argv: list[str]) -> tuple[str | None, list[str]]:
+    """Take `--profile NAME` (or `--profile=NAME`) out of the arguments wherever it stands. Returns (the validated
+    name or None, the other arguments). ProfileError for a missing, repeated or invalid name."""
+    from .profiles import validate_name
+
+    name: str | None = None
+    rest: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--profile" or arg.startswith("--profile="):
+            if name is not None:
+                raise ProfileError("--profile was given twice; use one")
+            if arg == "--profile":
+                if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
+                    raise ProfileError("a profile name is needed after it, for example: --profile mary")
+                i += 1
+                name = validate_name(argv[i])
+            else:
+                name = validate_name(arg.partition("=")[2])
+        else:
+            rest.append(arg)
+        i += 1
+    return name, rest
+
+
+def profile_cli(argv: list[str]) -> int:
+    """`profile create NAME | list | show NAME`: no brain config is needed (and none is read)."""
+    from .profiles import profile_command
+
+    pp = argparse.ArgumentParser(prog="python -m brain profile")
+    psub = pp.add_subparsers(dest="action")
+    psub.add_parser("create", help="make profiles/NAME/ with safe defaults").add_argument("name")
+    psub.add_parser("list", help="the profiles: port, live calls, key present or missing, capture, last used")
+    psub.add_parser("show", help="the effective config of one profile (no secrets)").add_argument("name")
+    ns = pp.parse_args(argv)
+    if ns.action is None:
+        pp.print_help()
+        return EXIT_REFUSED
+    return profile_command(vars(ns))
+
+
 def build_parser(config: AnyConfig) -> argparse.ArgumentParser:
     net = as_config(config).network
     port_type = _int_in_range(PORT_MIN, PORT_MAX, "a port")
     parser = argparse.ArgumentParser(prog="python -m brain")
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("info", help="version, config and key presence (default)")
+    sub.add_parser("profile", help="create, list or show a person's own setup: profile create NAME | list | show NAME")
     for name, helptext in (("serve", "run the protocol v0 WebSocket server"),
                            ("probe", "run the echo test as a test body against a running server "
                                      "(replaces a connected body, which then stops)")):
@@ -543,6 +596,10 @@ def build_parser(config: AnyConfig) -> argparse.ArgumentParser:
                    help="start with the body link, camera and microphone unavailable")
     d.add_argument("--no-files", action="store_true", help="print only; do not write data/logs or data/health.json")
     d.add_argument("--detail", action="store_true", help="every field of every event")
+    for name, sp in sub.choices.items():  # listed in --help; main() takes --profile out of the line before parsing
+        if name not in ("chaos", "profile"):
+            sp.add_argument("--profile", metavar="NAME", default=argparse.SUPPRESS,
+                            help="use profiles/NAME/ (its config.toml, .env, data/ and link token); default: the main setup")
     return parser
 
 
@@ -558,7 +615,9 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         obs.emit("config.error", "configuration refused; not starting", problem=str(e)[:200])
         print(f"config error: {e}", file=sys.stderr)
-        print("the brain did not start; fix the file and run it again", file=sys.stderr)
+        print("the brain did not start; "
+              + ("check the profile name and folder" if isinstance(e, ProfileError) else "fix the file")
+              + " and run it again", file=sys.stderr)
         return EXIT_REFUSED
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)
@@ -586,14 +645,28 @@ def _crashed(exc: BaseException) -> int:
 
 
 def _main(argv: list[str] | None) -> int:
-    config = as_config(load_config())
+    argv = sys.argv[1:] if argv is None else list(argv)
+    name, rest = split_profile_arg(argv)  # argv keeps --profile: `serve --supervised` hands it to its child
+    if rest[:1] == ["profile"]:
+        if name is not None:
+            raise ProfileError("the profile command takes the name as its own argument "
+                               "(profile create NAME), not as --profile")
+        _run["command"] = "profile"
+        return _barrier(lambda: profile_cli(rest[1:]))
+    if rest[:1] == ["chaos"] and name is not None:
+        raise ProfileError("chaos runs in its own sandbox and does not use a profile")
+    if name is None:
+        config = as_config(load_config())
+    else:
+        from .profiles import load_profile_config
+
+        config = load_profile_config(name)
     _run["data_dir"] = config.paths.data_dir
     parser = build_parser(config)
-    argv = sys.argv[1:] if argv is None else list(argv)
-    if argv[:1] == ["chaos"]:
+    if rest[:1] == ["chaos"]:
         _run["command"] = "chaos"
-        return _barrier(lambda: chaos(argv[1:]))
-    args = parser.parse_args(argv)
+        return _barrier(lambda: chaos(rest[1:]))
+    args = parser.parse_args(rest)
     _run["command"] = args.cmd or "info"
     return _barrier(lambda: _run_command(args, config, argv))
 
@@ -638,7 +711,7 @@ def _command(args: argparse.Namespace, config: Config, argv: list[str]) -> int:
         return demo_trace(args, config)
     if args.cmd == "chat":
         return chat(args, config)
-    return info()
+    return info(config)
 
 
 if __name__ == "__main__":

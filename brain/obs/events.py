@@ -230,6 +230,7 @@ ENTRY_EXEMPT: dict[str, str] = {
     "body_method.wait_connected": "waits only; the state change it waits for is body.link or link.up",
     "cli_command.brain.chaos": "the harness: its own report and results file are its trace",
     "cli_command.brain.watch": "the read-only viewer of the event files; events of its own would feed itself",
+    "cli_command.brain.profile": "creates, lists or shows profile folders under profiles/; it decides nothing at run time and the files are its record",
     "cli_command.brain.health": "prints data/health.json; reads only, decides nothing",
     "cli_command.migrate.*": "tools/migrate.py is a separate offline tool with its own report, not the running brain",
 }

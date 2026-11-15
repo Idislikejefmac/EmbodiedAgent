@@ -124,6 +124,59 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True)
+class Profile:
+    """Whose setup this is (docs/profiles.md). The default profile (name None) is Jeff's: the repo-root config.toml
+    and .env, data/, and keys from the environment or that .env. A named profile owns the folder
+    `profiles/<name>/` (config.toml, .env, data/) and its keys come ONLY from its own .env: the process
+    environment and the root .env are never consulted, so nobody spends another person's credit."""
+
+    name: str | None = None
+    root: Path | None = None  # profiles/<name>, absolute; None for the default profile
+
+    @property
+    def is_default(self) -> bool:
+        return self.name is None
+
+    @property
+    def label(self) -> str:
+        return self.name or "default"
+
+    @property
+    def config_path(self) -> Path:
+        return DEFAULT_CONFIG if self.root is None else self.root / "config.toml"
+
+    @property
+    def env_path(self) -> Path:
+        return DEFAULT_ENV if self.root is None else self.root / ".env"
+
+    def key_source(self) -> str:
+        """Where a key would come from, in words (a path, never a value)."""
+        if self.root is None:
+            return f"the environment or {self.env_path}"
+        return f"{self.env_path} only (the environment and the root .env are never used for a profile)"
+
+    def api_key(self, name: str) -> str | None:
+        """The value of key `name` for this profile, or None. For a named profile ONLY its own .env is read."""
+        if self.root is None:
+            return os.environ.get(name) or parse_env_file(self.env_path).get(name) or None
+        return parse_env_file(self.env_path).get(name) or None
+
+    def key_presence(self) -> dict[str, bool]:
+        """{known key name: present?}; names and booleans only."""
+        if self.root is None:
+            return key_presence()
+        file_values = parse_env_file(self.env_path)
+        return {name: bool(file_values.get(name)) for name in KNOWN_KEYS}
+
+
+class ProfileError(ConfigError):
+    """A profile name or folder cannot be used. Like any ConfigError: ONE message, exit code 2."""
+
+    def __init__(self, reason: str, source: str = "--profile"):
+        super().__init__(source, "", reason)
+
+
+@dataclass(frozen=True)
 class Config:
     network: NetworkConfig
     body: BodyConfig
@@ -134,6 +187,7 @@ class Config:
     logging: LoggingConfig
     source: str  # where it came from (a file path), for messages
     base: Path  # the folder relative paths were resolved under
+    profile: Profile = field(default_factory=Profile)  # whose setup this is (the default profile is Jeff's)
 
 
 # ---- value checks ---------------------------------------------------------------------------------------------
@@ -312,7 +366,8 @@ def _confine(text: str, where: str, source: str, base: Path, *, profile_ok: bool
     return resolved
 
 
-def parse_config(raw: Mapping[str, object], *, source: str = "config", base: Path | None = None) -> Config:
+def parse_config(raw: Mapping[str, object], *, source: str = "config", base: Path | None = None,
+                 profile: Profile | None = None) -> Config:
     """THE GATE: turn a parsed config table into a Config, or raise ConfigError. `base` is the folder
     relative paths are resolved under (default: the repo root)."""
     if not isinstance(raw, Mapping):
@@ -346,7 +401,7 @@ def parse_config(raw: Mapping[str, object], *, source: str = "config", base: Pat
         logging=LoggingConfig(get(("logging", "full_prompts"), lg.full_prompts),
                               get(("logging", "capture_max_mb"), lg.capture_max_mb),
                               get(("logging", "capture_max_days"), lg.capture_max_days)),
-        source=source, base=root)
+        source=source, base=root, profile=profile or Profile())
 
 
 def as_config(config: Config | Mapping[str, object] | None, *, base: Path | None = None) -> Config:
@@ -377,9 +432,9 @@ def _decode(data: bytes, source: str, what: str) -> str:
         raise ConfigError(source, "", f"{what} is not UTF-8 text (byte {e.start})") from None
 
 
-def load_config(path: Path | str | None = None) -> Config:
+def load_config(path: Path | str | None = None, *, profile: Profile | None = None) -> Config:
     """Read and check config.toml (default: the one at the repo root). Relative paths in it resolve under
-    the folder that holds it. Raises ConfigError (see the module docstring)."""
+    the folder that holds it. Raises ConfigError (see the module docstring). `profile` is carried in the result."""
     p = Path(path) if path else DEFAULT_CONFIG
     source = str(p)
     text = _decode(_read_capped(p, CONFIG_MAX_BYTES, "config file"), source, "config file")
@@ -389,7 +444,7 @@ def load_config(path: Path | str | None = None) -> Config:
         raise ConfigError(source, "", f"is not valid TOML: {str(e)[:200]}") from None
     except RecursionError:
         raise ConfigError(source, "", "is nested too deeply") from None
-    return parse_config(raw, source=source, base=p.resolve().parent)
+    return parse_config(raw, source=source, base=p.resolve().parent, profile=profile)
 
 
 def parse_env_file(path: Path | str | None = None) -> dict[str, str]:

@@ -61,6 +61,18 @@ The agent has no tools except those listed in `brain/agent/tools.v0.json`; `docs
 
 The agent loop (card P0-07) against SimBody with a scripted stand-in model: no key, no network, no spend. Type a line (or `/poke`, `/look <question>`, `/quit`); the reply is spoken through the body and the live event trace shows every step. `--as-app` feeds the lines as app-channel (untrusted) turns; `--live` uses the real model API and needs `ANTHROPIC_API_KEY`, `[models] allow_live_calls = true` and the spend caps in `[caps]`. Details: `docs/agent_loop.md`.
 
+## Profiles: a setup for each person
+
+```powershell
+.\.venv\Scripts\python -m brain profile create mary        # make profiles\mary\ (own port, caps, .env, data; capture off)
+.\.venv\Scripts\python -m brain profile list               # name, port, live calls, key present or missing, capture, last used
+.\.venv\Scripts\python -m brain profile show mary          # the effective config, no secrets
+.\.venv\Scripts\python -m brain info --profile mary        # key present or missing, and which file it would come from
+.\.venv\Scripts\python -m brain chat --profile mary        # any command takes --profile NAME
+```
+
+A profile is another person's own config, API key (only from `profiles\NAME\.env`; the environment and Jeff's `.env` are never used for it), spend counters, logs, prompt capture and link token. No `--profile` is the default setup, unchanged. It separates configuration and data on one machine; it is not a security boundary between Windows users. How to get her own key, what is shared, and how to remove a profile: `docs/profiles.md`.
+
 ## Run the brain server (protocol v0)
 
 ```powershell
@@ -121,3 +133,7 @@ The laptop is a company device whose firewall blocks the phone, so the phone rea
 ## Moving the project to another machine
 
 See `docs/migration.md`.
+
+## API key
+
+See `API-KEY-SETUP.md` for how to get an Anthropic API key, where to put it, and the spend limits.

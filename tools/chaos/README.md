@@ -54,6 +54,8 @@ characters, size), counted against the case's line budget, and an event of a cra
 a `no_crash` violation unless the case injected that fault (`isolated_fault=True`). Each case starts with
 full per-type event budgets (`EventLog.reset_limits`), so its event count does not depend on the case before.
 
+Profiles (`tools/chaos/cases/profiles.py`, card id `SYS`): `SYS.profiles.name_gate` (the boundary matrix and hostile names on the profile name, against an independent reference) and `SYS.profiles.isolation` (canary keys in the environment and the root `.env` that a profile must never see, separate ports, data and token folders, odd and broken profile folders). Manifest: `cli_command.brain.profile`, `cli_arg.brain.<cmd>.--profile`, three `file_site` rows and three gates. The child-process CLI cases are in `tests/test_profiles_cli.py`.
+
 X-02's own experiments (`tools/chaos/cases/observability.py`): `X-02.obs.emit` (hostile fields, canary
 secrets, forged lines, a failing event file and sink), `X-02.obs.state` (corrupt state files),
 `X-02.obs.viewer` (damaged and hostile event and health files), `X-02.obs.supervisor` (crashing, fatal and

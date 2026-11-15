@@ -92,6 +92,12 @@ def default_secrets_dir() -> Path:
     return Path.home() / ".local" / "share" / "embodied-agent" / "secrets"
 
 
+def profile_secrets_dir(name: str) -> Path:
+    """A named profile's token store (docs/profiles.md): <the default store's parent>/profiles/<name>/secrets, so
+    each person has their own link token. `name` must already have passed brain.profiles.validate_name."""
+    return default_secrets_dir().parent / "profiles" / name / "secrets"
+
+
 def token_path(store: Path) -> Path:
     return store / TOKEN_FILE_NAME
 

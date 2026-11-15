@@ -11,3 +11,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 *.eamig
+
+# One folder per person (config.toml, .env keys, data): never committed (docs/profiles.md)
+profiles/
