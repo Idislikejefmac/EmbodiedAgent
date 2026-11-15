@@ -254,13 +254,37 @@ def _vendor(source: str) -> Callable[[HealthBoard, Mapping[str, Any], Mapping[st
 
 def _stt(board: HealthBoard, f: Mapping[str, Any], event: Mapping[str, Any]) -> None:
     """Local speech to text: up after a transcript, down when the engine is unavailable (model missing or changed),
-    degraded for a busy decoder, a timeout or bad audio. The reason names the code, never the words."""
-    if f.get("ok", True):
-        board.set("speech_vendors", "up", f"{f.get('vendor', 'speech to text')}: last transcript {f.get('ms')} ms, "
-                                          f"real-time factor {f.get('rtf')}")
+    degraded for a busy decoder, a timeout or bad audio. The reason names the code, never the words. Events with a `phase`
+    (device, warming, warm, fallback) report the GPU life cycle: 'warming' until the warm-up is done, then 'up'."""
+    note = str(f.get("note") or "")
+    phase = f.get("phase")
+    dev = str(f.get("device") or "?")
+    if phase == "warming":
+        board.set("speech_vendors", "unknown", f"warming up the speech model on {dev}")
+    elif phase == "warm":
+        if f.get("ok", True):
+            board.set("speech_vendors", "up", f"warm on {dev} after {f.get('warm_ms')} ms; no transcript yet")
+        else:
+            board.set("speech_vendors", "degraded", f"warm-up failed ({f.get('code')}) on {dev}; the first transcript will be slow")
+    elif phase == "fallback":
+        board.set("speech_vendors", "degraded", note or "the GPU failed; using the CPU")
+    elif phase == "device":
+        if not f.get("ok", True):
+            board.set("speech_vendors", "down", note or "the GPU was asked for and cannot be used")
+        elif f.get("fallback"):
+            board.set("speech_vendors", "degraded", note or "GPU unusable, using CPU")
+        else:
+            board.set("speech_vendors", "unknown", f"speech model loaded: {note or dev}")
+    elif f.get("ok", True):
+        info = f"{f.get('vendor', 'speech to text')}: last transcript {f.get('ms')} ms, real-time factor {f.get('rtf')}"
+        if f.get("gpu_fallback"):
+            board.set("speech_vendors", "degraded", f"{note}; {info}" if note else info)
+        else:
+            board.set("speech_vendors", "up", f"{info}; {note}" if note else info)
     else:
         code = f.get("code")
-        board.set("speech_vendors", "down" if code == "SttUnavailable" else "degraded", f"last transcript failed: {code}")
+        board.set("speech_vendors", "down" if code == "SttUnavailable" else "degraded",
+                  f"last transcript failed: {code}" + (f"; {note}" if note else ""))
 
 
 def _component(state: str) -> Callable[[HealthBoard, Mapping[str, Any], Mapping[str, Any]], None]:

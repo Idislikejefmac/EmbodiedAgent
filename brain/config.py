@@ -48,8 +48,8 @@ KNOWN_KEYS = ("ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY", "DEEPGRAM_API_KEY")
 BODY_KINDS = ("sim", "phone")
 STT_ENGINES = ("whisper-local",)
 STT_MODELS = ("base.en", "small.en")  # English only (plan P2-04); the names match tools/fetch_stt_model.py
-STT_DEVICES = ("cpu", "auto")  # "auto" tries CUDA only if a one-time self-test passes, else CPU (docs/stt.md)
-STT_COMPUTE_TYPES = ("int8", "float32")
+STT_DEVICES = ("cpu", "auto", "cuda")  # "auto" tries CUDA only if a one-time self-test passes, else CPU; "cuda" insists on it (docs/stt.md)
+STT_COMPUTE_TYPES = ("int8", "float32", "int8_float16", "float16")  # the last two are GPU types; on the CPU the engine uses int8
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -269,7 +269,9 @@ def _choice(options: tuple[str, ...]) -> Check:
     def check(v: object) -> str:
         if not isinstance(v, str) or v not in options:
             shown = repr(v) if isinstance(v, str) and len(v) <= 40 and v.isprintable() else _kind(v)
-            raise _Bad(f"must be one of {', '.join(repr(o) for o in options)}, not {shown}")
+            near = difflib.get_close_matches(v, options, n=1) if isinstance(v, str) and len(v) <= 40 else []
+            hint = f"; did you mean {near[0]!r}?" if near else ""
+            raise _Bad(f"must be one of {', '.join(repr(o) for o in options)}, not {shown}{hint}")
         return v
     return check
 

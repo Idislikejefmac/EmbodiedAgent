@@ -545,6 +545,11 @@ entry = [
   { id = "file_site.brain/voice/modelstore.py:write_lock", kind = "file_site", card = "P2-04", boundary = "B10" },
   { id = "file_site.brain/voice/wavcheck.py:read_wav_pcm16k", kind = "file_site", card = "P2-04", boundary = "B10" },
   { id = "net_module.brain/voice/stt.py:subprocess", kind = "net_module", card = "P2-04", boundary = "B13" },
+  # GPU half (docs/stt.md "The GPU")
+  { id = "cli_arg.brain.stt-check.--compute-type", kind = "cli_arg", card = "P2-04", boundary = "B11" },
+  { id = "cli_arg.brain.stt-check.--device", kind = "cli_arg", card = "P2-04", boundary = "B11" },
+  { id = "env_var.PATH", kind = "env_var", card = "P2-04", boundary = "B11" },
+  { id = "file_site.brain/voice/stt.py:cuda_dll_dirs", kind = "file_site", card = "P2-04", boundary = "B10" },
 ]
 
 # ---- gate functions (docs/testing/00 section 4.4: E1a and E1b read this table) ---------------------------

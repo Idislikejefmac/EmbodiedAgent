@@ -78,7 +78,7 @@ def speech(tmp_path_factory: pytest.TempPathFactory) -> list[bytes]:
 
 
 def engine_for(model: str) -> LocalWhisperEngine:
-    cfg = dataclasses.replace(load_config().stt, model=model)
+    cfg = dataclasses.replace(load_config().stt, model=model, device="cpu", compute_type="int8")  # these tests are the CPU's
     return LocalWhisperEngine(cfg)
 
 
@@ -199,7 +199,7 @@ def test_stt_check_in_a_child_process_prints_text_time_and_rtf(tmp_path: Path, s
         w.setsampwidth(2)
         w.setframerate(16000)
         w.writeframes(speech[1])
-    done = subprocess.run([sys.executable, "-m", "brain", "stt-check", str(p), "--model", "base.en"], capture_output=True, text=True,
+    done = subprocess.run([sys.executable, "-m", "brain", "stt-check", str(p), "--model", "base.en", "--device", "cpu"], capture_output=True, text=True,
                           timeout=300, cwd=REPO_ROOT, stdin=subprocess.DEVNULL)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "real-time factor" in done.stdout and "decode" in done.stdout and "time is it" in done.stdout.lower()

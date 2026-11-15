@@ -44,7 +44,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Any
 
 from . import __version__, obs
-from .config import STT_MODELS, Config, ConfigError, ProfileError, as_config, key_presence, load_config
+from .config import STT_COMPUTE_TYPES, STT_DEVICES, STT_MODELS, Config, ConfigError, ProfileError, as_config, key_presence, load_config
 from .config import REPO_ROOT as REPO_ROOT  # re-exported for the harness and tests
 from .limits import (BODY_CHECK_WAIT_MAX_S, ECHO_TEST_MAX_BYTES, ECHO_TEST_MAX_COUNT, LOG_FILE_BACKUPS,
                      LOG_FILE_MAX_BYTES, PORT_MAX, PORT_MIN)
@@ -467,15 +467,20 @@ def stt_check(args: argparse.Namespace, config: Config) -> int:
     except WavError as e:
         print(f"stt-check: {e}")
         return EXIT_REFUSED
-    engine = LocalWhisperEngine(dataclasses.replace(config.stt, model=args.model or config.stt.model))
+    engine = LocalWhisperEngine(dataclasses.replace(config.stt, model=args.model or config.stt.model,
+                                                    device=args.device or config.stt.device,
+                                                    compute_type=args.compute_type or config.stt.compute_type))
     step = min(2560, AUDIO_IN_MAX_CHUNK_BYTES)  # 80 ms chunks, as the microphone path will deliver them
 
     async def go() -> int:
+        warm_ms = await engine.warm_async()  # load (and, on the GPU, self-test and warm up) first, so the decode time is the warm one
         engine.start("stt-check")
         for i in range(0, len(pcm), step):
             engine.feed(AudioChunk(0, i // step, AUDIO_IN_RATE_HZ, 1, pcm[i:i + step]))
         r = await engine.finish()
-        print(f"model {engine.config.model}, device {engine.device_used}, model load {engine.load_ms or 0:.0f} ms")
+        print(f"model {engine.config.model}, device {engine.device_used}")
+        print(f"model load {engine.load_ms or 0:.0f} ms" + (f", GPU self-test {engine.probe_ms:.0f} ms" if engine.probe_ms else "")
+              + (f", warm-up {warm_ms:.0f} ms" if warm_ms is not None else ", warm-up not done"))
         print(f"audio {r.duration_s:.2f} s, decode {r.decode_ms:.0f} ms, real-time factor {r.rtf:.3f}"
               + (f", empty: {r.empty_reason}" if r.empty_reason else ""))
         print(f"text: {r.text}" if r.text else "text: (nothing)")
@@ -622,6 +627,8 @@ def build_parser(config: AnyConfig) -> argparse.ArgumentParser:
     sc = sub.add_parser("stt-check", help="transcribe a 16 kHz mono 16-bit WAV file with the local speech model")
     sc.add_argument("file", help="the WAV file (16 kHz, mono, 16-bit PCM, at most 15 s)")
     sc.add_argument("--model", choices=STT_MODELS, default=None, help="default: config.toml [stt] model")
+    sc.add_argument("--device", choices=STT_DEVICES, default=None, help="default: config.toml [stt] device")
+    sc.add_argument("--compute-type", choices=STT_COMPUTE_TYPES, default=None, help="default: config.toml [stt] compute_type")
     sub.add_parser("chaos", add_help=False,
                    help="run the chaos and boundary test harness (card X-01; `chaos --help` for its options)")
     w = sub.add_parser("watch", help="show the event files (live with --follow); --health shows the health panel")

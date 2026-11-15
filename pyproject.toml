@@ -18,7 +18,7 @@ dependencies = [
 # Dev only (DEC-DEV-DEPS). A hash-pinned dev lockfile is a later task (H-03); until then these are lower bounds.
 dev = ["pytest>=8", "mypy>=1.13", "hypothesis>=6.170"]
 # Local speech to text (card P2-04, docs/stt.md): installed 15 Nov 2026 on Python 3.13 / Windows; pinned to what was tested.
-# No torch, no CUDA packages: the CPU path only. Models are fetched once by tools/fetch_stt_model.py, not by pip.
+# No torch. Models are fetched once by tools/fetch_stt_model.py, not by pip. The GPU libraries are the optional extra stt-gpu.
 stt = [
     "faster-whisper==1.2.1",
     "ctranslate2==4.8.5",
@@ -27,6 +27,13 @@ stt = [
     "huggingface-hub==2.4.0",  # used only by tools/fetch_stt_model.py
     "av==19.0.2",
     "numpy==2.5.4",
+]
+# The CUDA 12 libraries for the GPU path (about 1.6 GB of downloads; Windows needs NVIDIA driver 525 or newer). Installed 15 Nov 2026.
+# `pip install -e ".[stt,stt-gpu]"`. The engine finds their DLLs by itself (brain/voice/stt.py register_cuda_dlls).
+stt-gpu = [
+    "nvidia-cublas-cu12==12.9.2.10",
+    "nvidia-cudnn-cu12==9.28.1.4",
+    "nvidia-cuda-nvrtc-cu12==12.9.86",
 ]
 
 [tool.setuptools.packages.find]

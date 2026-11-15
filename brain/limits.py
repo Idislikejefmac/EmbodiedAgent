@@ -222,4 +222,8 @@ STT_MODEL_FILES_MAX = 16  # entries in one model folder; more is not a faster-wh
 STT_LOCK_MAX_BYTES = 64 * 1024  # data/models/stt/lock.json, checked before it is parsed.
 STT_JSON_FILE_MAX_BYTES = 8 * 1024**2  # config.json, tokenizer.json and friends: parsed to prove they are JSON.
 STT_CUDA_PROBE_TIMEOUT_S = 90.0  # [stt] device = "auto": the one-time CUDA self-test (a child process) may take this long.
+STT_WARM_TIMEOUT_S = 45.0  # the GPU warm-up decode may take this long (measured 7.3 s for base.en, 0.9 s for small.en); then we go on.
+STT_WARM_AUDIO_S = 1.0  # warm-up audio: this many seconds of synthetic low-level noise (enough to run the encoder once).
+STT_WARM_LEVEL = 0.01  # warm-up noise amplitude (float32 samples, full scale 1.0): far too quiet to be taken for speech.
+STT_GPU_REASON_MAX_CHARS = 100  # a GPU failure reason kept for health and events (cut here; control characters removed).
 STT_WAV_MAX_BYTES = 1024**2  # `stt-check` refuses a WAV file larger than this before reading it (15 s is 480 kB).

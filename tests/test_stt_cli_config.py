@@ -36,8 +36,11 @@ def test_the_defaults_are_local_base_en_on_cpu_int8() -> None:
     assert d.model_dir == (REPO_ROOT / "data" / "models" / "stt").resolve()
 
 
-def test_the_project_config_has_the_stt_section_with_the_default_values() -> None:
-    assert dataclasses.replace(load_config().stt) == parse_config({}).stt
+def test_the_project_config_has_the_stt_section_for_this_machine() -> None:
+    """This machine has an RTX GPU: small.en on device auto. Everything else is the default."""
+    default = parse_config({}).stt
+    assert dataclasses.replace(load_config().stt, model=default.model, device=default.device) == default
+    assert (load_config().stt.model, load_config().stt.device) == ("small.en", "auto")
 
 
 def test_every_stt_key_is_in_the_schema_and_nothing_else_is() -> None:
@@ -46,7 +49,8 @@ def test_every_stt_key_is_in_the_schema_and_nothing_else_is() -> None:
 
 
 @pytest.mark.parametrize("key,value", [("model", "small.en"), ("model", "base.en"), ("device", "auto"), ("device", "cpu"),
-                                       ("compute_type", "float32"), ("cpu_threads", 0), ("cpu_threads", 1),
+                                       ("device", "cuda"), ("compute_type", "float32"), ("compute_type", "int8_float16"),
+                                       ("compute_type", "float16"), ("compute_type", "int8"), ("cpu_threads", 0), ("cpu_threads", 1),
                                        ("cpu_threads", STT_CPU_THREADS_MAX), ("engine", "whisper-local")])
 def test_valid_values_are_accepted(key: str, value: Any) -> None:
     assert getattr(cfg(**{key: value}).stt, key) == value
@@ -54,7 +58,9 @@ def test_valid_values_are_accepted(key: str, value: Any) -> None:
 
 @pytest.mark.parametrize("key,value", [
     ("model", "large-v3"), ("model", "tiny"), ("model", "small"), ("model", "BASE.EN"), ("model", ""), ("model", None), ("model", 5), ("model", ["base.en"]),
-    ("device", "cuda"), ("device", "gpu"), ("device", ""), ("device", True), ("compute_type", "float16"), ("compute_type", "int4"),
+    ("device", "gpu"), ("device", "CUDA"), ("device", "cuda "), ("device", ""), ("device", True), ("device", None), ("device", 1),
+    ("compute_type", "int4"), ("compute_type", "FLOAT16"), ("compute_type", "int8_float32"), ("compute_type", "bfloat16"),
+    ("compute_type", ""), ("compute_type", None), ("compute_type", 16), ("compute_type", ["int8"]),
     ("engine", "deepgram"), ("engine", "whisper-cloud"), ("engine", None),
     ("cpu_threads", -1), ("cpu_threads", STT_CPU_THREADS_MAX + 1), ("cpu_threads", 1.5), ("cpu_threads", "4"), ("cpu_threads", True),
     ("cpu_threads", None), ("cpu_threads", 10**30), ("cpu_threads", float("nan")),
@@ -63,6 +69,26 @@ def test_invalid_values_are_refused_with_the_file_and_key_named(key: str, value:
     with pytest.raises(ConfigError) as e:
         cfg(**{key: value})
     assert "t.toml" in str(e.value) and key in str(e.value)
+
+
+@pytest.mark.parametrize("key,value,hint", [("device", "cud", "cuda"), ("device", "atuo", "auto"), ("device", "cpuu", "cpu"),
+                                             ("compute_type", "int8_float", "int8_float16"), ("compute_type", "float61", "float16"),
+                                             ("compute_type", "flaot32", "float32"), ("model", "small", "small.en")])
+def test_a_misspelt_value_gets_a_did_you_mean(key: str, value: str, hint: str) -> None:
+    with pytest.raises(ConfigError, match=f"did you mean '{hint}'"):
+        cfg(**{key: value})
+
+
+def test_a_value_with_nothing_close_lists_the_choices_without_a_guess() -> None:
+    with pytest.raises(ConfigError) as e:
+        cfg(device="graphics-card")
+    assert "'cpu', 'auto', 'cuda'" in str(e.value) and "did you mean" not in str(e.value)
+
+
+@pytest.mark.parametrize("device,compute", [("cpu", "float16"), ("cpu", "int8_float16"), ("cuda", "int8"), ("auto", "float32")])
+def test_every_device_and_compute_type_combination_passes_the_gate_the_engine_resolves_them(device: str, compute: str) -> None:
+    c = cfg(device=device, compute_type=compute).stt
+    assert (c.device, c.compute_type) == (device, compute)
 
 
 def test_an_unknown_stt_key_stops_the_brain_with_did_you_mean() -> None:
@@ -168,7 +194,12 @@ def test_stt_check_without_a_file_is_a_usage_error(child: Any) -> None:
 
 
 @pytest.mark.parametrize("args", [["--model", "large"], ["--model", ""], ["--model", "x" * 5000], ["--bogus"], ["-"], ["--"], ["-h-"],
-                                  ["--model"], ["a.wav", "b.wav"], ["--profile", "../x", "a.wav"], ["--profile", "NOPE", "a.wav"]])
+                                  ["--model"], ["a.wav", "b.wav"], ["--profile", "../x", "a.wav"], ["--profile", "NOPE", "a.wav"],
+                                  ["--device", "tpu", "a.wav"], ["--device", "", "a.wav"], ["--device", "CUDA", "a.wav"], ["--device"],
+                                  ["--device", "x" * 5000, "a.wav"], ["--device", "-1", "a.wav"],
+                                  ["--compute-type", "int4", "a.wav"], ["--compute-type", "float16 ", "a.wav"], ["--compute-type"],
+                                  ["--compute-type", "bfloat16", "a.wav"], ["--compute-type", "", "a.wav"],
+                                  ["--compute_type", "int8", "a.wav"], ["--devices", "cpu", "a.wav"]])
 def test_stt_check_bad_arguments_exit_2_without_a_traceback(child: Any, args: list[str]) -> None:
     code, out, err = child("stt-check", *args)
     assert code == 2
@@ -204,6 +235,17 @@ def test_stt_check_refuses_more_than_15_seconds_and_a_huge_file(child: Any, tmp_
     big.write_bytes(b"RIFF" + bytes(2 * 1024 * 1024))
     code, out, err = child("stt-check", str(big))
     assert code == 2 and "refused" in out
+
+
+@pytest.mark.parametrize("flags", [["--device", "cpu"], ["--device", "auto"], ["--device", "cuda"], ["--compute-type", "int8"],
+                                   ["--compute-type", "int8_float16"], ["--compute-type", "float16"], ["--compute-type", "float32"],
+                                   ["--device", "cuda", "--compute-type", "float16", "--model", "small.en"]])
+def test_stt_check_accepts_every_valid_device_and_compute_type_flag_and_reaches_the_model_check(child: Any, tmp_path: Path,
+                                                                                             flags: list[str]) -> None:
+    """With no models installed the command stops at the model check (exit 2, lock.json), before any GPU work."""
+    p = wav(tmp_path / "a.wav", tone(1.0))
+    code, out, err = child("stt-check", *flags, str(p))
+    assert code == 2 and "lock.json" in out, out
 
 
 def test_stt_check_with_no_models_says_how_to_fetch_them(child: Any, tmp_path: Path) -> None:

@@ -64,11 +64,15 @@ The agent loop (card P0-07) against SimBody with a scripted stand-in model: no k
 ## Speech to text (local)
 
 ```powershell
-.\.venv\Scripts\python -m pip install -e ".[stt]"                       # faster-whisper and friends (CPU only, versions pinned)
+.\.venv\Scripts\python -m pip install -e ".[stt]"                       # faster-whisper and friends (CPU, versions pinned)
+.\.venv\Scripts\python -m pip install -e ".[stt-gpu]"                   # optional: the CUDA 12 libraries for an NVIDIA GPU (about 1.6 GB)
 .\.venv\Scripts\python tools\fetch_stt_model.py                          # one-time, verified download of base.en and small.en (about 630 MB)
-.\.venv\Scripts\python -m brain stt-check some-speech.wav --model base.en # 16 kHz mono 16-bit WAV, at most 15 s
-.\.venv\Scripts\python -m pytest tests\test_stt_real_model.py --run-real-model   # the tests that load the real models
+.\.venv\Scripts\python -m brain stt-check some-speech.wav --model base.en # 16 kHz mono 16-bit WAV, at most 15 s; prints device, compute type, load, warm-up and decode times
+.\.venv\Scripts\python -m brain stt-check some-speech.wav --device cuda   # insist on the GPU (exit 2 with the reason if it is not usable)
+.\.venv\Scripts\python -m pytest tests\test_stt_real_model.py tests\test_stt_gpu_real.py --run-real-model   # the tests that load the real models (the GPU ones skip without a CUDA device)
 ```
+
+**GPU.** An NVIDIA GPU needs a CUDA 12 capable driver (525 or newer; this laptop has 621.24) and the one-time `pip install -e ".[stt-gpu]"` (cuBLAS, cuDNN and NVRTC, about 1.6 GB of downloads). Nothing else to set up: the engine finds the DLLs by itself. In `config.toml` `[stt]`, `device = "auto"` uses the GPU only if a one-time self-test passes and otherwise falls back to the CPU (the health panel says why); `"cuda"` insists. Check it with `python -m brain stt-check FILE.wav`: the first line shows `device cuda int8_float16`. Measured on this laptop (RTX 3080 Laptop, six synthetic sentences, warm median decode): base.en 73 ms on the GPU against 697 ms on the CPU; small.en 141 ms against 2,171 ms. With the GPU `small.en` meets the plan's 300 ms bar; on a CPU-only machine use `base.en`.
 
 Transcription runs on this laptop with faster-whisper (card P2-04, STT half); no audio and no text leaves it, and the brain never uses the network for it. The models live in `data/models/stt/` (git-ignored) and are checked against `lock.json` before every load. On this CPU a short utterance takes about 0.5 s with `base.en` and about 1.5 s with `small.en`, so the plan's 300 ms median target is not met on the CPU. Everything (config keys, how it is verified, measured numbers, the GPU and driver note, limits): `docs/stt.md`.
 

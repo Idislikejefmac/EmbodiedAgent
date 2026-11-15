@@ -15,6 +15,10 @@ Experiments:
 - P2-04.stt.real_engine: with the sandbox's empty model folder every request is refused cleanly (fail closed); only when
   EMBODIED_CHAOS_REAL_MODEL=1 and the run is allowed to read the real data folder (`chaos --allow-real-data`, as
   tests/test_stt_real_model.py does behind --run-real-model) does it load the real models and feed them silence and noise.
+- P2-04.stt.gpu: the GPU path over a fake CUDA layer: device auto and cuda, the compute-type resolution, the warm-up, a GPU
+  out-of-memory or CUDA error during a decode (a named error for that decode, then exactly one fall back to the CPU), an
+  unusable GPU, hostile reason and error texts. Oracle: only SttError subclasses escape, health reasons and events stay short
+  and clean, the engine keeps working on the CPU.
 
 Everything happens in the sandbox (synthetic folders, a fake model). The real data/ folder and the network are never touched
 by the default run.
@@ -540,14 +544,21 @@ BAD_WAVS: dict[str, bytes] = {
 
 
 def gen_wav_valid(g: Gen) -> list[Case]:
-    return [valid("good_1s", {"op": "wav", "name": "good_1s", "data": GOOD_WAV}),
+    return [valid("cli_device_cpu", {"op": "cli", "data": GOOD_WAV, "args": ["--device", "cpu", "--compute-type", "float16"]}),
+            valid("good_1s", {"op": "wav", "name": "good_1s", "data": GOOD_WAV}),
             valid("exactly_15s", {"op": "wav", "name": "exactly_15s", "data": _wav_bytes(bytes(UTTERANCE_MAX_BYTES))}),
             valid("cli_good", {"op": "cli", "data": GOOD_WAV})]
 
 
 def gen_wav_invalid(g: Gen) -> list[Case]:
     return _some(g, [invalid(f"wav_{k}", {"op": "wav", "name": k, "data": v}, "N5" if k not in ("stereo", "rate_44100", "rate_8000", "over_15s", "too_big") else "N2")
-                     for k, v in BAD_WAVS.items()], 9)
+                     for k, v in BAD_WAVS.items()], 9) + gen_wav_flags(g)
+
+
+def gen_wav_flags(g: Gen) -> list[Case]:
+    return [invalid(f"cli_flag_{i}", {"op": "cli_flag", "data": GOOD_WAV, "args": a}, "N6")
+            for i, a in enumerate([["--device", "tpu"], ["--device", ""], ["--device", "CUDA"], ["--compute-type", "int4"],
+                                   ["--compute-type", "float16 "], ["--device"], ["--compute-type"], ["--device", "x" * 3000]])]
 
 
 def gen_wav_hostile(g: Gen) -> list[Case]:
@@ -583,7 +594,11 @@ def _run_cli(ctx: Ctx, args: list[str], *, models: bool, broken: bool = False) -
     stt_module.LocalWhisperEngine = make  # type: ignore[misc,assignment]
     try:
         parser = cli.build_parser(config)
-        ns = parser.parse_args(["stt-check", *args])
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                ns = parser.parse_args(["stt-check", *args])
+        except SystemExit as e:  # argparse refuses a bad flag with exit code 2
+            return int(e.code) if isinstance(e.code, int) else 2, ""
         with contextlib.redirect_stdout(out):
             code = cli.stt_check(ns, config)
     finally:
@@ -615,12 +630,16 @@ def check_wav(case: Case, ctx: Ctx) -> Any:
         ctx.expect(want, "validate_before_use", f"{d['name']}: a bad WAV was accepted")
         ctx.expect(len(pcm) <= UTTERANCE_MAX_BYTES, "bounded_resources", "more than 15 s was returned")
         return len(pcm)
-    code, text = _run_cli(ctx, [str(path)], models=d["op"] != "cli_no_models", broken=d["op"] == "cli_broken_model")
+    code, text = _run_cli(ctx, [*d.get("args", []), str(path)], models=d["op"] != "cli_no_models", broken=d["op"] == "cli_broken_model")
     ctx.expect("Traceback" not in text, "no_crash", "stt-check printed a traceback")
     ctx.expect(code in (0, 2), "no_crash", f"exit code {code}")
-    if d["op"] == "cli":
+    if d["op"] == "cli_flag":
+        ctx.expect(code == 2, "validate_before_use", f"a bad flag was accepted: {d['args']!r:.60}")
+    elif d["op"] == "cli":
         ctx.expect((code == 0) == (case.cls is CaseClass.VALID), "validate_before_use", f"exit {code} for {case.name}: {text[:100]}")
         ctx.expect(code != 0 or "real-time factor" in text, "validate_before_use", "no timing line was printed")
+        ctx.expect(code != 0 or ("device" in text and "model load" in text and "warm-up" in text), "validate_before_use",
+                   "the device, load and warm-up lines are missing")
     else:
         ctx.expect(code == 2 and text.count("\n") <= 4, "fail_closed", f"{d['op']}: exit {code}: {text[:100]}")
     return code
@@ -640,7 +659,8 @@ def check_wav_cli(case: Case, ctx: Ctx) -> Any:
 
 # ---- the [stt] config keys --------------------------------------------------------------------------------------------------
 
-CHOICES = {"engine": ("whisper-local",), "model": ("base.en", "small.en"), "device": ("cpu", "auto"), "compute_type": ("int8", "float32")}
+CHOICES = {"engine": ("whisper-local",), "model": ("base.en", "small.en"), "device": ("cpu", "auto", "cuda"),
+           "compute_type": ("int8", "float32", "int8_float16", "float16")}
 HOSTILE_DIRS = ["..", "../x", "..\\x", "a/../../b", "C:\\Windows\\System32", "\\\\host\\share\\m", "/etc", "C:", "x" * 300, "a\x00b", "a\u202eb",
                 "~/..", "a\nb"]
 
@@ -653,7 +673,10 @@ def gen_cfg_valid(g: Gen) -> list[Case]:
     out = [valid(f"{k}_{v}".replace(".", "_"), {"key": k, "value": v, "accept": True}) for k, vs in CHOICES.items() for v in vs]
     out += matrix_cases("cpu_threads", Spec("integer", minimum=0, maximum=STT_CPU_THREADS_MAX, required=True),
                         make=lambda b: _stt_case(b, "cpu_threads"), skip=("wrong_type_bytes",))
-    return _some(g, [c for c in out if c.cls is CaseClass.VALID], 8)
+    gpu = [valid("gpu_device_cuda", {"key": "device", "value": "cuda", "accept": True}),
+           valid("gpu_compute_float16", {"key": "compute_type", "value": "float16", "accept": True}),
+           valid("gpu_compute_int8_float16", {"key": "compute_type", "value": "int8_float16", "accept": True})]
+    return _some(g, [c for c in out if c.cls is CaseClass.VALID], 8) + gpu
 
 
 def gen_cfg_invalid(g: Gen) -> list[Case]:
@@ -661,11 +684,13 @@ def gen_cfg_invalid(g: Gen) -> list[Case]:
                        make=lambda b: _stt_case(b, "cpu_threads"), skip=("wrong_type_bytes",))
     out = [c for c in out if c.cls is CaseClass.INVALID]
     for k, vs in CHOICES.items():
-        wrong: list[Any] = ["", "x", None, 5, True, [], vs[0].upper(), vs[0] + " ", "cuda", "large-v3", "float16"]
+        wrong: list[Any] = ["", "x", None, 5, True, [], vs[0].upper(), vs[0] + " ", "gpu", "large-v3", "bfloat16", "int8_float32"]
         for i, bad in enumerate(wrong):
             out.append(invalid(f"{k}_bad_{i}", {"key": k, "value": bad, "accept": False}, "N1" if not isinstance(bad, str) else "N6"))
     unknown = invalid("unknown_key", {"key": "modle", "value": "base.en", "accept": False}, "N4")
-    return _some(g, out, 11) + [unknown]
+    misspelt = [invalid("gpu_device_did_you_mean", {"key": "device", "value": "cud", "accept": False}, "N6"),
+                invalid("gpu_compute_did_you_mean", {"key": "compute_type", "value": "float61", "accept": False}, "N6")]
+    return _some(g, out, 11) + [unknown] + misspelt
 
 
 def gen_cfg_hostile(g: Gen) -> list[Case]:
@@ -723,7 +748,7 @@ async def check_real(case: Case, ctx: Ctx) -> Any:
     if real:
         from brain.config import load_config
 
-        cfg = load_config().stt
+        cfg = dataclasses.replace(load_config().stt, device="cpu", compute_type="int8")  # the CPU path; the GPU has its own tests
     else:
         cfg = SttConfig(model_dir=ctx.sandbox.fresh_dir("no_models"))  # nothing is installed here: the engine must refuse
     engine = LocalWhisperEngine(cfg)
@@ -771,3 +796,227 @@ async def check_real(case: Case, ctx: Ctx) -> Any:
     hostile=lambda g: [hostile("planted_model_dir", {"op": "silence"}, "N16")], failure=gen_real_failure)
 async def check_real_engine(case: Case, ctx: Ctx) -> Any:
     return await check_real(case, ctx)
+
+
+# ---- the GPU path (fake CUDA layer) --------------------------------------------------------------------------------------------
+
+GPU_VALID = ["auto_gpu", "cuda_float16", "cpu_float16", "cpu_threads_not_on_gpu", "warm_explicit"]
+GPU_INVALID = [("engine_bad_device", "tpu", "int8"), ("engine_empty_device", "", "int8"), ("engine_bad_compute", "auto", "bogus"),
+               ("engine_upper_compute", "cpu", "FLOAT16"), ("engine_other_device", "gpu", "int4")]
+GPU_FAILURES = ["oom_decode", "cuda_error_iteration", "memory_error_decode", "warm_gpu_error", "warm_other_error", "warm_hang",
+                "unusable_auto", "unusable_cuda", "load_fails_auto", "load_fails_cuda", "cpu_fails_after_fallback"]
+GPU_HOSTILE = ["reason_text", "error_text", "reason_huge"]
+
+
+def gen_gpu_valid(g: Gen) -> list[Case]:
+    return [valid(op, {"op": op}) for op in GPU_VALID]
+
+
+def gen_gpu_invalid(g: Gen) -> list[Case]:
+    return [invalid(name, {"op": "bad_config", "device": dev, "compute": ct}, "N6") for name, dev, ct in GPU_INVALID]
+
+
+def gen_gpu_hostile(g: Gen) -> list[Case]:
+    return [hostile(op, {"op": op}, "N7") for op in GPU_HOSTILE]
+
+
+def gen_gpu_failure(g: Gen) -> list[Case]:
+    return [failure(op, {"op": op}, "N11" if "hang" in op else "N14") for op in GPU_FAILURES]
+
+
+class _GpuEvents:
+    def __init__(self) -> None:
+        from brain import obs
+
+        self.obs = obs
+        self.items: list[Any] = []
+
+    def __enter__(self) -> _GpuEvents:
+        self.obs.LOG.reset_limits()
+        self.obs.LOG.add_sink(self.items.append)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.obs.LOG.remove_sink(self.items.append)
+
+    def phase(self, name: str) -> list[dict[str, Any]]:
+        return [x["f"] for x in self.items if x["type"] == "speech.stt" and x["f"].get("phase") == name]
+
+
+def _flaky(h: Any, fail_on: int | None, error: BaseException | None, *, iterate: bool = False, delay_s: float = 0.0) -> Any:
+    """A fake model whose call number `fail_on` (1 and 2 are the warm-up passes, 3 the first utterance) raises `error`, at the call or while iterating."""
+
+    class Flaky(h.FakeWhisperModel):  # type: ignore[misc]  # h is the test helper module loaded by path (Any)
+        n = 0
+
+        def transcribe(self, audio: Any, **options: Any) -> Any:
+            Flaky.n += 1
+            if fail_on == Flaky.n and error is not None:
+                if not iterate:
+                    raise error
+                self.crash = error
+            else:
+                self.crash = None  # type: ignore[assignment]
+            return super().transcribe(audio, **options)
+
+    return Flaky([h.seg("gpu words")], delay_s=delay_s)
+
+
+async def _feed(engine: Any, h: Any, uid: str) -> None:
+    engine.start(uid)
+    for c in _chunks(h.tone(1.0)):
+        engine.feed(c)
+
+
+async def _gpu_case(case: Case, ctx: Ctx) -> Any:
+    import brain.voice.stt as stt_module
+    from brain.obs.health import HealthBoard
+    from brain.voice.stt import SttGpuError, SttGpuOutOfMemory, SttUnavailable
+
+    op, h = case.data["op"], _helpers()
+    root = ctx.sandbox.fresh_dir("gpu_models")
+    h.make_model(root)
+    made: list[tuple[Any, ...]] = []
+    oom, cuda_err = RuntimeError("CUDA failed with error out of memory"), RuntimeError("CUDA failed with error unknown error")
+    usable: tuple[bool, str] = (True, "CUDA self-test passed")
+    gpu: Any = _flaky(h, None, None)
+    cpu: Any = h.FakeWhisperModel([h.seg("cpu words")])
+    fail_gpu: BaseException | None = None
+    device, compute, threads = "auto", "int8", 0
+    expect_error: type[BaseException] | None = None
+    warm_timeout = 45.0
+    if op == "cuda_float16":
+        device, compute = "cuda", "float16"
+    elif op == "cpu_float16":
+        device, compute, usable = "cpu", "float16", (False, "not asked")
+    elif op == "cpu_threads_not_on_gpu":
+        threads = 7
+    elif op == "bad_config":
+        device, compute, usable = case.data["device"], case.data["compute"], (False, "no GPU")
+    elif op == "oom_decode":
+        gpu, expect_error = _flaky(h, 3, oom), SttGpuOutOfMemory
+    elif op == "cuda_error_iteration":
+        gpu, expect_error = _flaky(h, 3, cuda_err, iterate=True), SttGpuError
+    elif op == "memory_error_decode":
+        gpu, expect_error = _flaky(h, 3, MemoryError()), SttGpuOutOfMemory
+    elif op == "warm_gpu_error":
+        gpu = _flaky(h, 1, oom)
+    elif op == "warm_other_error":
+        gpu = _flaky(h, 1, ValueError("odd"))
+    elif op == "warm_hang":
+        gpu, warm_timeout = _flaky(h, None, None, delay_s=30.0), 0.2
+    elif op in ("unusable_auto", "unusable_cuda"):
+        usable = (False, "the CUDA self-test failed: cublas64_12.dll not found")
+        device = "cuda" if op == "unusable_cuda" else "auto"
+        expect_error = SttUnavailable if op == "unusable_cuda" else None
+    elif op in ("load_fails_auto", "load_fails_cuda"):
+        fail_gpu = RuntimeError("cublas64_12.dll is not found")
+        device = "cuda" if op == "load_fails_cuda" else "auto"
+        expect_error = SttUnavailable if op == "load_fails_cuda" else None
+    elif op == "cpu_fails_after_fallback":
+        gpu, expect_error = _flaky(h, 3, oom), SttGpuOutOfMemory
+        cpu = h.FakeWhisperModel(error=RuntimeError("cpu broke"))
+    elif op == "reason_text":
+        usable = (False, "bad\x1b[31m\u202e reason\x00 " * 400)
+    elif op == "reason_huge":
+        usable = (False, "x" * 5_000_000)
+    elif op == "error_text":
+        gpu, expect_error = _flaky(h, 3, RuntimeError("CUDA " + "\x1b[31m\u202e out of memory " * 20_000)), SttGpuOutOfMemory
+
+    def factory(folder: Path, dev: str, compute_type: str, n_threads: int) -> Any:
+        made.append((dev, compute_type, n_threads))
+        if dev == "cuda":
+            if fail_gpu is not None:
+                raise fail_gpu
+            return gpu
+        return cpu
+
+    real_usable = stt_module.cuda_usable
+    stt_module.cuda_usable = lambda folder, compute_type: usable  # the real one starts a child process: not in the sandbox
+    board = HealthBoard()
+    # a config that skipped the gate (bad_config): the engine must still behave
+    cfg = SttConfig(model_dir=root)
+    for key, value in (("device", device), ("compute_type", compute), ("cpu_threads", threads)):
+        object.__setattr__(cfg, key, value)
+    engine = LocalWhisperEngine(cfg, factory=factory, warm_timeout_s=warm_timeout, decode_timeout_s=10.0)
+    t0 = time.perf_counter()
+    try:
+        with _GpuEvents() as ev:
+            if op in ("warm_explicit", "warm_gpu_error", "warm_other_error", "warm_hang"):
+                ms = await asyncio.wait_for(engine.warm_async(), 10)
+                # after a GPU error in the warm-up the CPU model is loaded and warmed instead: still a number
+                ctx.expect((ms is not None) == (op in ("warm_explicit", "warm_gpu_error")), "no_crash", f"{op}: warm() returned {ms!r}")
+                if op == "warm_hang":
+                    gpu.release.set()  # the abandoned warm-up may end now
+            first = None
+            try:
+                await _feed(engine, h, "g1")
+                first = await asyncio.wait_for(engine.finish(), 20)
+            except SttError as e:
+                ctx.expect(expect_error is not None and isinstance(e, expect_error), "fail_closed",
+                           f"{op}: unexpected {type(e).__name__}: {e}")
+                ctx.expect(len(str(e)) < 400 and "Traceback" not in str(e) and "\x1b" not in str(e), "no_secret_in_output",
+                           "an unsafe or long error text")
+            else:
+                ctx.expect(expect_error is None, "right_to_refuse", f"{op}: a failing GPU decode returned text")
+                _clean(ctx, first.text, op)
+            if op in ("oom_decode", "cuda_error_iteration", "memory_error_decode", "error_text"):  # one fall back, then it works
+                for i in range(2):
+                    await _feed(engine, h, f"g{i + 2}")
+                    again = await asyncio.wait_for(engine.finish(), 20)
+                    ctx.expect(again.text == "cpu words", "no_crash", f"{op}: the CPU did not take over: {again.text!r:.40}")
+                ctx.expect(engine.device == "cpu" and len(ev.phase("fallback")) == 1, "no_crash",
+                           f"{op}: expected exactly one fall back, got {len(ev.phase('fallback'))}")
+            if op == "cpu_fails_after_fallback":
+                await _feed(engine, h, "g2")
+                try:
+                    await asyncio.wait_for(engine.finish(), 20)
+                except SttError:
+                    pass
+                else:
+                    ctx.expect(False, "right_to_refuse", "a failing CPU decode returned text")
+                ctx.expect(len(ev.phase("fallback")) == 1, "bounded_resources", "a second fall back happened")
+            for x in ev.items:
+                board.on_event(x)
+            src = board.sources["speech_vendors"]
+            ctx.expect(len(src.reason) <= 163 and not any(c in src.reason for c in ("\x1b", "\u202e", "\x00")),
+                       "no_secret_in_output", "the health reason is long or not clean")
+            for x in ev.items:
+                if x["type"] == "speech.stt":
+                    ctx.expect(len(str(x["f"].get("note") or "")) <= 200 and "\x1b" not in str(x["f"]), "no_secret_in_output",
+                               "an event note is long or not clean")
+            if op == "unusable_cuda":
+                ctx.expect(made == [] and src.state == "down", "fail_closed", f"explicit cuda ran anyway: {made} {src.state}")
+        if op == "auto_gpu":
+            ctx.expect(made == [("cuda", "int8_float16", 0)] and engine.warm_state == "up", "validate_before_use",
+                       f"{made} {engine.warm_state}")
+        elif op == "cuda_float16":
+            ctx.expect(made == [("cuda", "float16", 0)], "validate_before_use", f"{made}")
+        elif op == "cpu_float16":
+            ctx.expect(made == [("cpu", "int8", 0)], "validate_before_use", f"a float16 type reached the CPU: {made}")
+        elif op == "cpu_threads_not_on_gpu":
+            ctx.expect(made == [("cuda", "int8_float16", 0)], "validate_before_use", f"cpu_threads reached the GPU: {made}")
+        elif op == "bad_config":
+            ctx.expect(bool(made) and all(m[0] == "cpu" and m[1] in ("int8", "float32") for m in made), "validate_before_use", f"{made}")
+        elif op in ("unusable_auto", "load_fails_auto"):
+            ctx.expect(first is not None and first.text == "cpu words", "no_crash", f"{op}: the CPU did not take over")
+        ctx.expect(time.perf_counter() - t0 < 15, "bounded_resources", f"{op} took {time.perf_counter() - t0:.1f} s")
+        return op
+    finally:
+        stt_module.cuda_usable = real_usable
+        if hasattr(gpu, "release"):
+            gpu.release.set()
+        engine.close()
+
+
+@experiment(
+    id="P2-04.stt.gpu", card="P2-04", entries=("env_var.PATH", "file_site.brain/voice/stt.py:cuda_dll_dirs"),
+    hypothesis="Over a fake CUDA layer the local engine uses the GPU only when its self-test passes (device auto) or insists on it "
+               "(cuda, which then reports SttUnavailable with the reason), resolves the compute type (int8 becomes int8_float16 on "
+               "the GPU, a float16 type becomes int8 on the CPU), keeps cpu_threads off the GPU, warms up once without blocking or "
+               "raising, and turns a GPU out-of-memory or CUDA error during a decode into a named SttError for that decode only "
+               "followed by exactly one fall back to the CPU; its events and health reasons stay short and clean whatever the "
+               "driver or library says. Never a crash.",
+    blast_radius="sandbox", valid=gen_gpu_valid, invalid=gen_gpu_invalid, hostile=gen_gpu_hostile, failure=gen_gpu_failure)
+async def check_gpu(case: Case, ctx: Ctx) -> Any:
+    return await _gpu_case(case, ctx)
