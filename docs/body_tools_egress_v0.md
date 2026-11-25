@@ -57,7 +57,7 @@ The registry trusts the `Caller` it is given, so the agent loop must build it co
 
 Two layers:
 
-1. **Import lint** (`tests/test_egress.py`): only `brain/egress.py` may import a network client library or a vendor SDK (`socket`, `ssl`, `http`, `urllib.request`, `httpx`, `httpx2`, `requests`, `aiohttp`, `anthropic`, `_overlapped`, `winreg`, speech vendors and so on). `brain/transport/` and `brain/body/link.py` may import `websockets` for the loopback link. `subprocess` and `ctypes` are allowed only in `transport/auth.py` and `body/phone.py`. Calls such as `open_connection`, `sock_connect`, `os.system`, the `os.exec*` and `os.spawn*` families, `posix_spawn`, `exec`, `eval`, `compile` and `import_module` are flagged anywhere else.
+1. **Import lint** (`tests/test_egress.py`): only `brain/egress.py` may import a network client library or a vendor SDK (`socket`, `ssl`, `http`, `urllib.request`, `httpx`, `httpx2`, `requests`, `aiohttp`, `anthropic`, `_overlapped`, `winreg`, speech vendors and so on). `brain/transport/` and `brain/body/link.py` may import `websockets` for the loopback link. `subprocess` and `ctypes` are allowed only where `tests/test_egress.py` names them: both in `transport/auth.py`; `subprocess` in `body/phone.py`, `voice/stt.py` and `obs/launcher.py`. Calls such as `open_connection`, `sock_connect`, `os.system`, the `os.exec*` and `os.spawn*` families, `posix_spawn`, `exec`, `eval`, `compile` and `import_module` are flagged anywhere else.
 2. **Process guard** (`install_guard`, called by `python -m brain` before anything else, and for the whole test suite): an audit hook refuses any name lookup, reverse lookup or connection that is not allowed, before anything is sent. On Windows asyncio connects through overlapped I/O, which raises no audit event, so the guard also wraps the event loop's `connect` and `sendto`. It is **one-shot**: a second call with a different policy raises. It **tests itself** at install (a blocking and an asyncio connection to the documentation address 192.0.2.1 must both be refused) and refuses to start the brain otherwise, so a change in asyncio's internals fails loudly instead of opening a gap.
 
 What is allowed:
@@ -68,7 +68,7 @@ What is allowed:
 
 Consequence: `python -m brain probe --host <another machine>` is refused unless that host and port are in `[egress]`.
 
-**The Anthropic client (P0-07, P1-04).** The earlier claim here, that the guard alone confines the SDK "whatever base URL, proxy setting or redirect it is given", was wrong for a loopback proxy and has been withdrawn. What holds now: the SDK's HTTP client opens ordinary Python sockets, so under the guard it can reach `api.anthropic.com:443`, cannot reach any other outside host, and cannot reach a local proxy. That was checked with plain sockets and `urllib`, not with the SDK, which is not installed. P0-07 builds the client in one factory in `brain/egress.py` (the only file allowed to import the SDK), which calls `policy.check("api.anthropic.com")`, and passes the SDK an HTTP client built with environment proxy settings switched off (`trust_env=False`) and an explicit transport; check the SDK's current documentation for the class to pass as `http_client` (the 1.x SDK is built on `httpx2`). If the agent loop needs the SDK's exception types, re-export them from `brain/egress.py`. P1-04's budget guard wraps the same factory. The SDK retries connection errors, so a refused destination shows as a connection error after its retries, with `EGRESS DENIED` in the log.
+**The Anthropic client (P0-07, P1-04).** The earlier claim here, that the guard alone confines the SDK "whatever base URL, proxy setting or redirect it is given", was wrong for a loopback proxy and has been withdrawn. What holds now: the SDK's HTTP client opens ordinary Python sockets, so under the guard it can reach `api.anthropic.com:443`, cannot reach any other outside host, and cannot reach a local proxy. When this was written (13 Nov) that had been checked with plain sockets and `urllib` only; the results with the SDK are below. P0-07 builds the client in one factory in `brain/egress.py` (the only file allowed to import the SDK), which calls `policy.check("api.anthropic.com")`, and passes the SDK an HTTP client built with environment proxy settings switched off (`trust_env=False`) and an explicit transport; check the SDK's current documentation for the class to pass as `http_client` (the 1.x SDK is built on `httpx2`). If the agent loop needs the SDK's exception types, re-export them from `brain/egress.py`. P1-04's budget guard wraps the same factory. The SDK retries connection errors, so a refused destination shows as a connection error after its retries, with `EGRESS DENIED` in the log.
 
 ### P0-07 checklist: verify the claim with the real SDK
 
@@ -91,7 +91,7 @@ the import lint passes. Checked without network: a base URL of `https://192.0.2.
 with `EgressDenied` in the cause chain; with `HTTPS_PROXY` and `ALL_PROXY` pointing at a listener in another
 process the client goes direct (the guard refuses the lookup of the API host under the suite's loopback-only
 policy) and the listener receives nothing; an explicit proxy is refused at its loopback connection. Every request
-is a streaming one. **Not yet done: the one real call** (needs the key): `pytest tests\test_real_vendor.py
+is a streaming one. **The one real call:** live model calls succeeded on 15 Nov 2026 (`docs/STATUS.md`); no record that this dedicated test has been run (needs the key): `pytest tests\test_real_vendor.py
 --run-real-vendor` records the destinations and checks that only `api.anthropic.com` was looked up and only port
 443 connected. Note: this SDK sends the key as `authorization: Bearer`, not `x-api-key`.
 
@@ -105,7 +105,7 @@ Limits, stated plainly:
 
 ## 4. Type checking
 
-`python -m mypy` runs mypy in strict mode over `brain/body`, `brain/agent` and `brain/egress.py` (`[tool.mypy]` in `pyproject.toml`); `tests/test_typing.py` runs it with the suite. `brain/transport`, `brain/config.py` and `brain/__main__.py` are imported but not yet checked strictly; bringing them in is a small separate job.
+`python -m mypy` runs mypy in strict mode over the packages listed in `[tool.mypy] files` in `pyproject.toml` (the brain, including the transport, config and command line, and parts of `tools/`; `brain/transport/auth.py` is exempted); `tests/test_typing.py` runs it with the suite.
 
 ## 5. Decisions on the open questions (Jeff, 13 Nov 2026)
 
@@ -126,5 +126,5 @@ Registry: cannot raise (argument checks are bounded and wrapped); unexpected arg
 
 ## 7. Pending
 
-- **Real-phone status check (card step 4).** The phone was out of range. To run it: stop `serve`, then `python -m brain body-check --body phone --wait 60` and press Connect in the app. Pass is `tool get_body_status: ok/ok` with `connected: True`, `stale: False` and the phone's real `battery_pct` and `charging`. Everything else about PhoneBody is tested against the protocol's test body on loopback.
-- The checklist in section 3, in P0-07.
+- **Real-phone status check (card step 4): done 15 Nov 2026** (`docs/gates/P0-05-phone-recheck.md`: `get_body_status: ok/ok`, connected, not stale, real battery and charging). To repeat it: stop `serve`, then `python -m brain body-check --body phone --wait 60` and press Connect in the app.
+- The checklist in section 3: the offline checks were done in P0-07 (results there; only the async, streaming client exists). The real-call destination check has no recorded run.

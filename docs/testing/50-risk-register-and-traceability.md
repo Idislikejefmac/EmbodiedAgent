@@ -1,5 +1,7 @@
 # Test and Risk Design: Cross-cutting Risk Register, Gate Coverage, Traceability and Remediation
 
+> Design written 13 Nov 2026 against commit `bc7610c`. What it calls existing or planned may be out of date: see [`../STATUS.md`](../STATUS.md) and check the source.
+
 Status: draft v2 (reconciled), 13 Nov 2026. Owner: Jeff. This is document `50` of the set in `00-overview-and-standards.md` ("doc 00") section 11. It covers what no single card owns: system-wide risks, the de-duplicated index of every risk, the gates G0 to G11 as test events, traceability and counts, one ordered list of what to fix, the merged decision register, and the reconciliation report for the whole set. Version 1 was written before the correction pass; this version is regenerated from the corrected documents 00 to 45 under `CONVENTIONS.md` (C1 to C12).
 
 ## At a glance (read this first)
@@ -748,6 +750,8 @@ Severity: **High** = can lose data, leak a secret, spend money, exhaust memory r
 | H-35 | Low | `brain/agent/tools.v0.json` line 256 (reserved list) | **New.** `recall` is reserved with `sensitive: false`, but reading another person's claims is sensitive by argument (40-F66, 30-F12) | Authorization inside the `recall` handler (or mark it sensitive) before P4-08 | T-P3-11-007 | S | Verified |
 
 Status, hardening batch 2 (14 Nov 2026): H-11 done (brain/limits.py is the home; tests/test_limits.py; Limits.kt left for batch 3). H-05 done (frozen Config gate, ConfigError, exit 2; tests/test_config_gate.py). H-10 done. H-01 and H-33 done (deletion log is a hook until P3-01/P4-08). H-34 done. H-09 and H-04 done early (DEC-104 policy as recommended, values provisional). Tests in tests/test_hardening_batch2.py.
+
+Status, 24 Nov 2026 (details in docs/STATUS.md): H-16 done. H-02, H-03 and H-14 partly done (the shared corpus is `protocol/corpus/v0-hostile.json`). The mypy list now covers the transport except `auth.py` (H-13). H-17 waits on DEC-040. The chaos findings X01B-01 and 03 to 08 are fixed.
 
 Duplicates dropped while adding items: "mypy test fails open" is H-13; "Speaker lacks status, evidence and a validated name" is H-16; "header `log_n` accepted up to 22 before the tag check" is H-01.
 

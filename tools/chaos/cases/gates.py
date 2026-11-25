@@ -132,8 +132,6 @@ def _cat() -> dict[str, Any]:
     return raw
 
 
-D4 = "X01B-04: a deeply nested data file (schema, manifest or catalogue) ends the load in RecursionError instead of a ValueError; low risk, the files ship with the code"
-
 
 def gen_cat_valid(g: Gen) -> list[Case]:
     return [valid("shipped_catalogue", {"op": "doc", "mut": None}), valid("shipped_catalogue_from_file", {"op": "file", "mode": "real"}),
@@ -160,8 +158,7 @@ def gen_cat_failure(g: Gen) -> list[Case]:
     out = []
     for name, data in (("empty", b""), ("not_json", b"{nope"), ("not_utf8", b"\xff\xfe\x00{}"), ("json_null", b"null"),
                        ("json_list", b"[]"), ("deeply_nested", b"[" * 200_000), ("bom", b"\xef\xbb\xbf{}"), ("huge", b" " * 3_000_000 + b"{}")):
-        out.append(failure(f"file_{name}", {"op": "file", "mode": "bytes", "data": data}, "N13",
-                           known_defect=D4 if name == "deeply_nested" else None))
+        out.append(failure(f"file_{name}", {"op": "file", "mode": "bytes", "data": data}, "N13"))
     out.append(failure("file_missing", {"op": "file", "mode": "missing"}, "N15"))
     return out
 
@@ -281,8 +278,7 @@ def gen_schema_invalid(g: Gen) -> list[Case]:
             invalid("schema_file_not_utf8", {"op": "schema", "mode": "bytes", "data": b"\xff\xfe{}"}, "N5"),
             invalid("schema_file_is_not_a_schema", {"op": "schema", "mode": "bytes", "data": b'{"type": 7}'}, "N1"),
             invalid("schema_file_json_list", {"op": "schema", "mode": "bytes", "data": b"[]"}, "N1"),
-            invalid("schema_file_deep", {"op": "schema", "mode": "bytes", "data": b"[" * 100_000}, "N4",
-                    known_defect="X01B-04: a deeply nested data file (schema, manifest or catalogue) ends the load in RecursionError instead of a ValueError; low risk, the files ship with the code"),
+            invalid("schema_file_deep", {"op": "schema", "mode": "bytes", "data": b"[" * 100_000}, "N4"),
             invalid("manifest_not_toml", {"op": "manifest", "text": "[[entry"}, "N1"),
             invalid("manifest_empty", {"op": "manifest", "text": ""}, "N3"),
             invalid("manifest_wrong_schema", {"op": "manifest", "text": "schema = 2\n"}, "N6"),
@@ -292,12 +288,11 @@ def gen_schema_invalid(g: Gen) -> list[Case]:
             invalid("manifest_bad_exempt", {"op": "manifest", "text": 'schema = 1\n[[exempt]]\nids = []\ncard = "AND"\nreason = "x"\n'}, "N3"),
             invalid("manifest_exempt_short_reason", {"op": "manifest", "text": 'schema = 1\n[[exempt]]\nids = ["a"]\ncard = "AND"\nreason = "x"\n'}, "N2"),
             invalid("manifest_unknown_top_key", {"op": "manifest", "text": "schema = 1\nsurprise = 1\n"}, "N4"),
-            invalid("manifest_deep_toml", {"op": "manifest", "text": "schema = 1\nx = " + "[" * 5000 + "]" * 5000 + "\n"}, "N4", known_defect=D4)]
+            invalid("manifest_deep_toml", {"op": "manifest", "text": "schema = 1\nx = " + "[" * 5000 + "]" * 5000 + "\n"}, "N4")]
 
 
 def gen_schema_hostile(g: Gen) -> list[Case]:
-    return [hostile("manifest_gate_name_traversal", {"op": "manifest", "text": 'schema = 1\n[[gate]]\nname = "..\\\\x"\nboundary = "B1"\nproduces = "x"\nlimits = []\n'}, "N7",
-                    known_defect="X01B-05: check_gates raises TypeError, not a drift line, for a gate name that is a relative import such as ..x"),
+    return [hostile("manifest_gate_name_traversal", {"op": "manifest", "text": 'schema = 1\n[[gate]]\nname = "..\\\\x"\nboundary = "B1"\nproduces = "x"\nlimits = []\n'}, "N7"),
             hostile("manifest_limit_home_code", {"op": "manifest", "text": 'schema = 1\n[limits]\nX = "os:system"\n'}, "N7"),
             hostile("manifest_nul_and_controls", {"op": "manifest", "text": 'schema = 1\n# \x00\x07\n'}, "N7"),
             hostile("manifest_over_size", {"op": "manifest", "text": "# x\n" * (M.MANIFEST_MAX_BYTES // 4 + 10)}, "N7")]

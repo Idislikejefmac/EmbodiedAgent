@@ -11,12 +11,13 @@ from .base import (INTERFACE_VERSION, Body, BodyBusy, BodyError, BodyTimeout, Bo
                    NotYetImplemented)
 from .streams import BodyStream
 from .types import (AudioChunk, BodyEvent, BodyStatus, Capability, ClockSync, ConfidenceBand, Image, NavGoal, Pose,
-                    Speaker, TrackingState, Utterance)
+                    PersonName, Speaker, SpeakerStatus, TrackingState, Utterance)
 
 __all__ = [
     "BODY_KINDS", "INTERFACE_VERSION", "AudioChunk", "Body", "BodyBusy", "BodyError", "BodyEvent", "BodyStatus",
     "BodyStream", "BodyTimeout", "BodyUnavailable", "Capability", "ClockSync", "ConfidenceBand", "Image",
-    "NavGoal", "NotSupported", "NotYetImplemented", "Pose", "Speaker", "TrackingState", "Utterance", "create_body",
+    "NavGoal", "NotSupported", "NotYetImplemented", "PersonName", "Pose", "Speaker", "SpeakerStatus", "TrackingState",
+    "Utterance", "create_body",
 ]
 
 

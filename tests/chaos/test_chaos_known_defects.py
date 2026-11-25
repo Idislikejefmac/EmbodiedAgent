@@ -16,19 +16,11 @@ from tools.chaos import lints
 
 pytestmark = pytest.mark.chaos
 
-# Stage 1b findings (X01B-nn), each shown by one representative case; every other case with the same X01B id is
-# covered by that entry (test_no_case_is_still_a_recorded_defect matches on the id). Fixing a defect: delete the
-# known_defect marker from its cases and move its entry to FIXED in the same commit.
-DEFECTS: list[tuple[str, str, str]] = [
-    ("P0-06.sim.media/invalid/", "read_wav_empty", "X01B-01: read_wav leaks EOFError or wave.Error for a bad WAV"),
-    ("P0-06.sim.media/invalid/", "read_wav_rate_zero", "X01B-01: read_wav accepts a sample rate of 0 (the audio stream producer then dies)"),
-    ("P0-06.sim.media/invalid/", "wav_bytes_rate_is_float", "X01B-03: wav_bytes silently truncates a float sample rate"),
-    ("P0-05.schema.manifest_load/invalid/", "schema_file_deep", "X01B-04: RecursionError on a deeply nested data file"),
-    ("P0-05.schema.manifest_load/hostile/", "manifest_gate_name_traversal", "X01B-05: check_gates TypeError on a relative-import gate name"),
-    ("P0-06.link_body.lifecycle/invalid/", "status_timeout_zero", "X01B-06: LinkBody status_timeout_s is not validated"),
-    ("X-01.cli_env.flags_and_environment/invalid/", "seed_underscore", "X01B-07: chaos --seed accepts 1_0"),
-    ("X-01.cli_env.flags_and_environment/failure/", "systemroot_1", "X01B-08: SystemRoot picks the executable the token store starts"),
-]
+# Add a newly found defect here as (case id prefix, case name, "X01B-nn: what is wrong"), shown by one
+# representative case; every other case with the same id is covered by that entry
+# (test_no_case_is_still_a_recorded_defect matches on the id). Fixing a defect: delete the known_defect marker
+# from its cases and move its entry to FIXED in the same commit.
+DEFECTS: list[tuple[str, str, str]] = []
 
 # Fixed in hardening batch 2: each was a strict expected failure above and is now a permanent regression case.
 FIXED = [
@@ -46,6 +38,15 @@ FIXED = [
      "H-01: restore_data handed a header log_n of 22 (about 4 GiB) to scrypt before authenticating the archive"),
     ("P0-06.matrix.body_args/invalid/", "audio_chunk.sample_rate_hz.one_over_maximum",
      "Appendix A.10 item 2 / H-34: AudioChunk had no upper bound on sample_rate_hz"),
+    # Stage 1b findings, fixed after the full run on commit 0520566 reproduced all seven.
+    ("P0-06.sim.media/invalid/", "read_wav_empty", "X01B-01: read_wav leaked EOFError or wave.Error for a bad WAV"),
+    ("P0-06.sim.media/invalid/", "read_wav_rate_zero", "X01B-01: read_wav accepted a sample rate of 0"),
+    ("P0-06.sim.media/invalid/", "wav_bytes_rate_is_float", "X01B-03: wav_bytes truncated a float sample rate"),
+    ("P0-05.schema.manifest_load/invalid/", "schema_file_deep", "X01B-04: RecursionError on a deeply nested data file"),
+    ("P0-05.schema.manifest_load/hostile/", "manifest_gate_name_traversal", "X01B-05: check_gates raised TypeError"),
+    ("P0-06.link_body.lifecycle/invalid/", "status_timeout_zero", "X01B-06: status_timeout_s was not validated"),
+    ("X-01.cli_env.flags_and_environment/invalid/", "seed_underscore", "X01B-07: chaos --seed accepted 1_0"),
+    ("X-01.cli_env.flags_and_environment/failure/", "systemroot_1", "X01B-08: SystemRoot picked the executable run"),
 ]
 
 
@@ -72,7 +73,7 @@ def test_fixed_defect_stays_fixed(chaos_quick_report, prefix, name, defect):
 
 
 def test_no_case_is_still_a_recorded_defect(chaos_quick_report):
-    """Hardening batch 2 cleared every recorded defect; a new one must be added to DEFECTS with its H-item."""
+    """A case may carry known_defect only if DEFECTS lists its id."""
     recorded = {d.split(":")[0] for _, _, d in DEFECTS}
     unlisted = [(r.case_id, r.name) for r in chaos_quick_report.results if r.known_defect
                 and (r.known_defect or "").split(":")[0] not in recorded]

@@ -1,5 +1,7 @@
 # Test and Risk Design: Phase 3, Identity (face, voice, fusion, consent, privacy)
 
+> Design written 13 Nov 2026 against commit `bc7610c`. What it calls existing or planned may be out of date: see [`../STATUS.md`](../STATUS.md) and check the source.
+
 Status: draft v2, 13 Nov 2026 (corrected after the independent review). Owner: Jeff. Every card here is **Planned**: `brain/identity/` holds only its package docstring today, so every test below is a design, not a test that exists, unless the text says "exists". This document applies `00-overview-and-standards.md` (promises P1 to P5, boundaries B1 to B21, rules S1 to S12, checks E1 to E11, classes N1 to N21, risk method, section 8 structure, Appendix A limits) and `CONVENTIONS.md` (C1 to C12, binding). Where the plan and this document disagree, section 15 lists it; nothing here silently overrides the plan.
 
 ## Corrections applied (13 Nov 2026)
@@ -962,7 +964,7 @@ Plan: Jeff's 10 held-back utterances all return Jeff or uncertain, never another
 
 ### 9.13 Gaps and open questions
 
-- 30-F03: `brain/body/types.py` `Speaker` has no status, no evidence set, does not validate `name` (any string, any length) and does not bound `voice_score`; the `listen` and `who_is_present` output schemas allow `name` of any length and characters. Test T-P3-07-035; must land before G2 (doc 50 H-16).
+- 30-F03: `brain/body/types.py` `Speaker` has no status, no evidence set, does not validate `name` (any string, any length) and does not bound `voice_score`; the `listen` and `who_is_present` output schemas allow `name` of any length and characters. Test T-P3-07-035; must land before G2 (doc 50 H-16). **Fixed 24 Nov 2026** (docs/STATUS.md).
 - The unknown-speaker branch "re-checks on the longer reply" did not say what passes: the reply's own score must reach the normal accept threshold; the claim adds nothing (T-P3-07-007).
 
 ## 10. P3-08 Multi-speaker and room-audio handling

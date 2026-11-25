@@ -25,8 +25,6 @@ from ..api import Case, Ctx, Gen, Violation, experiment, failure, hostile, inval
 
 HOSTILE_ENV = ("", " ", "x" * 5000, "a b", "..\\..\\..", "a\nb", "Everyone:(OI)(CI)F", "C:\\no\\such", "\\\\server\\share", "ünï ✓", "-x",
                "a" * 300, "%USERNAME%", "$(whoami)")
-SYSTEMROOT_DEFECT = ("X01B-08: brain/transport/auth.py _icacls() builds the program it starts from the SystemRoot environment variable "
-                     "unchecked, so a changed SystemRoot makes the token store start a different executable (the harness refuses it)")
 CHAOS_FLAGS = ("--allow-real-data", "--allow-real-phone", "--check-manifest", "--full", "--list", "--manifest-stub", "--no-results",
                "--only", "--plant", "--quick", "--results-dir", "--scan-logs", "--seed", "--strict-coverage")
 
@@ -61,9 +59,7 @@ def gen_invalid(g: Gen) -> list[Case]:
                        ("quick_and_full", ["--quick", "--full"]), ("unknown_flag", ["--definitely-not-a-flag"]), ("only_missing", ["--only"]),
                        ("plant_missing", ["--plant"]), ("results_dir_missing", ["--results-dir"]), ("bare_word", ["quick"]),
                        ("flag_with_value_it_does_not_take", ["--full=1"]), ("single_dash", ["-"]), ("double_dash_only", ["--", "--full"])):
-        out.append(invalid(name, {"op": "parse", "argv": argv, "ok": False}, "N6" if "seed" in name else "N3" if "missing" in name else "N4",
-                       known_defect=("X01B-07: the chaos --seed flag accepts '1_0' and fullwidth digits (int() is lenient), so the "
-                                     "same seed can be written two ways") if name in ("seed_underscore", "seed_fullwidth") else None))
+        out.append(invalid(name, {"op": "parse", "argv": argv, "ok": False}, "N6" if "seed" in name else "N3" if "missing" in name else "N4"))
     return out
 
 
@@ -92,8 +88,7 @@ def gen_failure(g: Gen) -> list[Case]:
         for i, v in enumerate(HOSTILE_ENV[:9]):
             if g.mode == "quick" and i not in (0, 1, 3, 5, 6):
                 continue  # each one starts icacls (about 0.1 s); full mode runs all nine
-            out.append(failure(f"{var.lower()}_{i}", {"op": "env", "var": var, "value": v}, "N15",
-                               known_defect=SYSTEMROOT_DEFECT if var == "SystemRoot" and i in (1, 2, 3, 5) else None))
+            out.append(failure(f"{var.lower()}_{i}", {"op": "env", "var": var, "value": v}, "N15"))
     return out
 
 
@@ -187,7 +182,7 @@ def case_is_hostile(value: str | None) -> bool:
 
 @experiment(
     id="X-01.cli_env.flags_and_environment", card="X-01",
-    entries=("cli_arg.chaos.*", "env_var.LOCALAPPDATA", "env_var.SystemRoot", "env_var.USERDOMAIN", "env_var.USERNAME",
+    entries=("cli_arg.chaos.*", "env_var.LOCALAPPDATA", "env_var.USERDOMAIN", "env_var.USERNAME",
              "file_site.brain/__main__.py:setup_logging"),
     hypothesis="A bad chaos flag ends in a usage message and exit code 2; a hostile LOCALAPPDATA, SystemRoot, USERNAME or "
                "USERDOMAIN makes the token store refuse with a message or use a private store, never an unhandled "

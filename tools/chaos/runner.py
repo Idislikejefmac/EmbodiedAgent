@@ -478,9 +478,12 @@ def summary(report: RunReport) -> str:
 
 def _seed(text: str) -> int:
     try:
+        digits = text.removeprefix("-")  # a negative number reaches the range message below
+        if not (digits.isascii() and digits.isdigit()):  # int() also takes '1_0', ' 1 ' and fullwidth digits
+            raise ValueError
         value = int(text, 10)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"seed must be a whole number, not {text!r}") from None
+        raise argparse.ArgumentTypeError(f"seed must be a whole number, not {text[:40]!r}") from None
     if not 0 <= value <= T.SEED_MAX:
         raise argparse.ArgumentTypeError(f"seed must be 0 to 2^63-1, not {value}")
     return value

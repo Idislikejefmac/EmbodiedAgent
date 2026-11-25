@@ -167,5 +167,7 @@ arguments.
   which LinkBody turns into `BodyError(refused)`. `speak_local` is in the phone's hello only while its engine is usable,
   so `speak_text` exists only then. A `poke` event (button, at most one per 3 s on the phone) starts a turn through the
   PokeGate. Verified on a Samsung S25 Edge: ten pokes gave ten turns and ten spoken replies.
-- **The real-vendor test and the live checklist item** ("one real call; the only destination is
-  api.anthropic.com:443") need the key: `pytest tests\test_real_vendor.py --run-real-vendor`.
+- **The real-vendor test.** Live model calls succeeded on 15 Nov 2026 (the chat log shows requests to
+  api.anthropic.com), but there is no record that the dedicated test has been run:
+  `pytest tests\test_real_vendor.py --run-real-vendor`. The destination-only check of the live checklist is likewise
+  not recorded.

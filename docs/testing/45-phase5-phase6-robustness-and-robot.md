@@ -1,5 +1,7 @@
 # Test and Risk Design: Phase 5 (Robustness and Demo) and Phase 6 (Robot)
 
+> Design written 13 Nov 2026 against commit `bc7610c`. What it calls existing or planned may be out of date: see [`../STATUS.md`](../STATUS.md) and check the source.
+
 > **PARKED (13 Nov 2026):** the robot cards R-01 to R-09 and gate G11 are parked; nothing is bought until face and voice recognition, history tracking and conversation over built knowledge are robust. Near-term work is the phone path: P5-01 to P5-06 here, and guidance of a person carrying the phone (P4-06, G9). The R-01 evaluator runs at G10 on phone-path evidence; its designs below are kept but not scheduled.
 
 Status: draft v2 (corrected), 13 Nov 2026. Owner: Jeff. Applies `00-overview-and-standards.md` (called "the standards" below: promises P1 to P5, boundaries B1 to B21, rules S1 to S12 and K1 to K7, checks E1 to E11, classes N1 to N21, section 8 card structure, Appendix A limits) and `CONVENTIONS.md` (C1 to C12) to cards P5-01 to P5-06 and R-01 to R-09, and to gate G11. Nothing in these cards is built. Phase 5 cards are Planned designs; Phase 6 cards are proportionate designs, with the safety cards (R-02, R-04, R-05, R-09, G11) given the most rigor. "Exists" is claimed only for things seen in the repository on 13 Nov 2026: `brain/body/base.py`, `sim.py`, `types.py`, `brain/agent/tools.v0.json`, `body_tools.py`, `protocol/v0.md`, `docs/adding_a_body.md`, `docs/gates/G0.md`. No test named `T-P5-*`, `T-RB*` or `T-GATE11-*` exists yet.

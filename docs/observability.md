@@ -76,8 +76,8 @@ lists them too (`event_type.*`), so adding or removing one is reviewed.
   WARNING for the 80 percent warning and a stale price table), `budget.stop`, `prompt.capture_ref` (the record id
   and byte count of an entry in the PRIVATE capture file; full prompts never enter the event stream). Field names
   avoid the redacted words: token counts are `in_tok`, `out_tok`, `cache_read_tok`, `cache_write_tok`.
-- **Reserved for later cards** (named and documented, so the card only calls `emit`): `speech.stt`, `speech.tts`
-  (P2), `identity.decision` (P3-10). The health panel maps `model.call_end` (model_vendor), `speech.*` and
+- **Reserved for later cards** (named and documented, so the card only calls `emit`): `speech.tts`
+  (P2), `identity.decision` (P3-10). `speech.stt` is live since P2-04 (`docs/stt.md`). The health panel maps `model.call_end` (model_vendor), `speech.*` and
   `budget.*` to their sources.
 
 Types marked `crash` (`supervisor.crashed`, `tool.failed`, `process.crash`) report an exception nothing
@@ -143,8 +143,8 @@ reason and the age of the last thing heard from it:
 
 Sources: `body_link`, `camera`, `microphone`, `speaker` (from the body's capability set and from frames,
 audio and speech actually flowing), `clock`, `battery`, `temperature`, `model_vendor`, `speech_vendors`
-(unknown until P0-07 and P2), `queues` (event, handler and stream drops), `budget` (placeholder until P0-07
-step 9; the counters live in `data/state.json`), `disk` (free space under data/), `log_sink`, `config`,
+(local speech to text, `docs/stt.md`; text to speech is P2-05), `queues` (event, handler and stream drops), `budget` (the spend guard, consulted
+only by `chat`; its counters live in `data/state.json`), `disk` (free space under data/), `log_sink`, `config`,
 `supervisor` (the supervised components). A snapshot older than `OBS_HEALTH_STALE_S` is shown as STALE.
 
 ## The crash barrier
@@ -175,8 +175,8 @@ step 9; the counters live in `data/state.json`), `disk` (free space under data/)
   backs off from `LAUNCHER_BACKOFF_INITIAL_S` to `LAUNCHER_BACKOFF_MAX_S`, and gives up after
   `LAUNCHER_RESTARTS_MAX` deaths in `LAUNCHER_WINDOW_S`. It never restarts after a clean stop (0) or a
   fail-closed refusal (2). Ctrl+C stops both.
-- **State across a restart**: `data/state.json` (session id, start count, request and spend counters as
-  placeholders for P0-07's guard, pending request ids) is written atomically (temporary file, then replace)
+- **State across a restart**: `data/state.json` (session id, start count, the request and spend
+  counters of the spend guard, pending request ids) is written atomically (temporary file, then replace)
   and checked on load; a corrupt, oversize or wrong file is quarantined (`state.corrupt-*.json`, at most
   `STATE_QUARANTINE_KEPT`) and replaced by defaults, never a crash.
 

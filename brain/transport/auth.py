@@ -103,7 +103,15 @@ def token_path(store: Path) -> Path:
 
 
 def _icacls() -> str:
-    return os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "icacls.exe")
+    """icacls.exe in the system folder as Windows itself reports it: the SystemRoot environment variable can be
+    changed by whoever starts the brain, so it must not choose the program that is run (X01B-08)."""
+    buf = ctypes.create_unicode_buffer(260)  # MAX_PATH
+    get = ctypes.WinDLL("kernel32", use_last_error=True).GetSystemDirectoryW
+    get.argtypes, get.restype = [ctypes.c_wchar_p, ctypes.c_uint], ctypes.c_uint
+    n = get(buf, len(buf))
+    if not 0 < n < len(buf):
+        raise TokenStoreError(f"Windows did not report its system folder (error {ctypes.get_last_error()})")
+    return os.path.join(buf.value, "icacls.exe")
 
 
 # Windows security descriptors through the Win32 API (no parsing of tool output).

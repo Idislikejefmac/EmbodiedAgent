@@ -2,6 +2,8 @@
 
 A trial of a Claude agent with a body: first an Android phone, later possibly a wheeled robot. The full plan is in `EmbodiedAgent-Plan-and-Implementation-Order.md`.
 
+**Starting a session? Read [`docs/STATUS.md`](docs/STATUS.md) first:** what is built, what is next and what is waiting on whom.
+
 ## Layout
 
 | Folder | What |
@@ -12,14 +14,17 @@ A trial of a Claude agent with a body: first an Android phone, later possibly a 
 | `tools/` | Command-line tools (for example data migration) |
 | `docs/` | Design notes, gate records, privacy and migration docs |
 | `data/` | Private runtime data. Git-ignored and created locally |
+| `profiles/` | Other people's setups (`docs/profiles.md`). Git-ignored |
 
 ## Setup (Windows, PowerShell)
 
 ```powershell
-py -3.13 -m venv .venv    # Python 3.12 or newer
+py -3.13 -m venv .venv    # Python 3.13 or newer
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 Copy-Item .env.example .env     # then fill in keys; .env is git-ignored
 ```
+
+`requirements.lock` pins exact versions and hashes (Windows, Python 3.13, all extras including the large GPU libraries). To install from it: `pip install --require-hashes --only-binary=:all: -r requirements.lock`, then `pip install --no-deps -e .`. An install from this file has not yet been tried end to end. After changing a dependency, run `tools\make_lockfile.py`.
 
 ## Run the brain tests
 
@@ -29,11 +34,20 @@ Copy-Item .env.example .env     # then fill in keys; .env is git-ignored
 
 The protocol tests check the schema, every example in `protocol/v0.md`, the binary frame layout, the server against a Python test body, and that the body's Kotlin allowlist matches the spec. The body tests run one shared contract (`tests/body_contract.py`) against the simulated body and against the phone body over loopback (no phone needed). The tool tests check the agent's tool schemas and that every request outside the allowlist is refused and logged. The whole suite runs under the egress guard, so no test can reach the network.
 
-Type checking (mypy, strict, over `brain/body`, `brain/agent` and `brain/egress.py`; also run by `tests/test_typing.py`):
+Type checking (mypy, strict, over the packages listed in `pyproject.toml` `[tool.mypy] files`; also run by `tests/test_typing.py`):
 
 ```powershell
 .\.venv\Scripts\python -m mypy
 ```
+
+## Chaos tests
+
+```powershell
+.\.venv\Scripts\python -m brain chaos           # quick run
+.\.venv\Scripts\python -m brain chaos --full    # 5 seeds, about 16 minutes; step 0 of every gate from G1
+```
+
+Hostile and failing input against every entry point. See `docs/chaos.md`.
 
 ## Run the brain
 
@@ -122,7 +136,7 @@ cd body-android
 .\gradlew.bat assembleDebug
 ```
 
-Install on a paired phone with `adb install -r app\build\outputs\apk\debug\app-debug.apk`. Run the Kotlin unit tests (binary frame format, authentication vectors, clock estimator, backpressure, validation) with `.\gradlew.bat testDebugUnitTest`.
+Install on a paired phone with `adb install -r app\build\outputs\apk\debug\app-debug.apk`. Run the Kotlin unit tests (binary frame format, authentication vectors, clock estimator, backpressure, validation) with `.\gradlew.bat testDebugUnitTest`, and Android lint with `.\gradlew.bat lintDebug lintRelease`.
 
 The app opens on the brain-link screen: a `host:port` setting (default `127.0.0.1:8765`), a link-state indicator (connected, retrying, stopped, not paired), Connect and Stop buttons, a Poke button, an echo-test button and an "ARCore check" button for the P0-02 checker. Poke sends a `poke` event (at most one every 3 s; a poke made too soon, or while not connected, is dropped and noted in the on-screen log, never queued), which makes the brain run a turn. Nothing runs until Connect is pressed. The link then runs in a foreground service with a notification (with a Stop action), so it stays up with the screen locked and reconnects by itself when the brain restarts. It stops itself after 3 minutes without a stable link (one that stayed up 10 s), when the app is swiped away, when the brain shuts down and does not return within a minute, or when another body replaces it; authentication failures are retried within those 3 minutes; it holds a CPU wake lock only while connected. The screen is kept on only during an echo test.
 

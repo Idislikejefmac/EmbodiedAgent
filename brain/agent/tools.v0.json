@@ -122,13 +122,15 @@
           "duration_ms": {"type": ["integer", "null"], "minimum": 0},
           "speaker": {
             "type": ["object", "null"],
-            "required": ["person_id", "name", "band", "voice_score"],
+            "required": ["person_id", "name", "band", "voice_score", "status", "evidence"],
             "additionalProperties": false,
             "properties": {
               "person_id": {"type": ["string", "null"]},
-              "name": {"type": ["string", "null"]},
+              "name": {"type": ["string", "null"], "maxLength": 40, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\\[\\]{}()<>|:%0-9_\\\\/\"]*(?!\n)$"},
               "band": {"enum": ["confirmed", "probable", "uncertain", "unknown"]},
-              "voice_score": {"type": ["number", "null"]}
+              "voice_score": {"type": ["number", "null"], "minimum": -1, "maximum": 1},
+              "status": {"enum": ["identified", "too_short", "inherited", "pending", "multiple", "unavailable", "self"]},
+              "evidence": {"type": "array", "uniqueItems": true, "items": {"enum": ["voice", "face"]}}
             }
           },
           "audio_ref": {"type": ["string", "null"]}
@@ -154,8 +156,10 @@
             "additionalProperties": false,
             "properties": {
               "person_id": {"type": ["string", "null"]},
-              "name": {"type": ["string", "null"]},
-              "band": {"enum": ["confirmed", "probable", "uncertain", "unknown"]}
+              "name": {"type": ["string", "null"], "maxLength": 40, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\\[\\]{}()<>|:%0-9_\\\\/\"]*(?!\n)$"},
+              "band": {"enum": ["confirmed", "probable", "uncertain", "unknown"]},
+              "status": {"enum": ["identified", "too_short", "inherited", "pending", "multiple", "unavailable", "self"]},
+              "evidence": {"type": "array", "uniqueItems": true, "items": {"enum": ["voice", "face"]}}
             }
           },
           "in_view": {
@@ -166,7 +170,7 @@
               "additionalProperties": false,
               "properties": {
                 "person_id": {"type": ["string", "null"]},
-                "name": {"type": ["string", "null"]},
+                "name": {"type": ["string", "null"], "maxLength": 40, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\\[\\]{}()<>|:%0-9_\\\\/\"]*(?!\n)$"},
                 "band": {"enum": ["confirmed", "probable", "uncertain", "unknown"]},
                 "face_score": {"type": ["number", "null"]}
               }

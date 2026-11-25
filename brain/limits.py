@@ -85,6 +85,7 @@ WIRE_IMAGE_EDGE_MAX_PX = 8192  # image width and height in the wire header (sche
 AUDIO_SAMPLE_RATE_HZ_MIN = 8_000  # PCM sample rate on the wire (schema `pcm`); AudioChunk enforces it (H-34).
 AUDIO_SAMPLE_RATE_HZ_MAX = 192_000
 AUDIO_CHANNELS_MAX = 2  # mono or stereo (schema `pcm.channels`) (H-34).
+DISPLAY_NAME_MAX_CHARS = 40  # a person's name (PersonName; the tool catalogue's output schemas match) (H-16).
 QUAT_NORM_TOL = 1e-3  # a unit quaternion's norm may differ from 1 by this much, then it is renormalised. Was a literal.
 EVENT_QUEUE = 256  # body event stream, drop oldest. Existing.
 POSE_QUEUE = 16  # body pose stream, drop oldest. Existing.

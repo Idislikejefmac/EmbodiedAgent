@@ -150,6 +150,8 @@ def load_manifest(path: Path | None = None, text: str | None = None) -> Manifest
         doc = tomllib.loads(text)
     except tomllib.TOMLDecodeError as err:
         raise ManifestError(f"manifest {p} is not valid TOML: {err}") from None
+    except RecursionError:
+        raise ManifestError(f"manifest {p} is nested too deeply") from None
     problems: list[str] = []
     if doc.get("schema") != SCHEMA_VERSION:
         problems.append(f"schema must be {SCHEMA_VERSION}")
@@ -704,7 +706,7 @@ def check_gates(m: Manifest) -> list[str]:
     for g in m.gates:
         try:
             _resolve_dotted(g["name"])
-        except (ImportError, AttributeError):
+        except (ImportError, AttributeError, TypeError, ValueError):  # TypeError: a relative name such as ..x
             problems.append(f"gate {g['name']} does not resolve to anything in the code")
         for lim in g["limits"]:
             if lim not in m.limits:
@@ -714,7 +716,7 @@ def check_gates(m: Manifest) -> list[str]:
             module, attr = home.split(":", 1)
             try:
                 value = getattr(importlib.import_module(module), attr)
-            except (ImportError, AttributeError):
+            except (ImportError, AttributeError, TypeError, ValueError):
                 problems.append(f"limit {name}: {home} does not resolve")
                 continue
             if isinstance(value, bool) or not isinstance(value, (int, float, tuple)):

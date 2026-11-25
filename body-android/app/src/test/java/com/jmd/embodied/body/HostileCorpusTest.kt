@@ -100,14 +100,6 @@ class HostileCorpusTest {
         "dup_key_type_hb_then_command" to "duplicate key: Kotlin rejects as bad_json, Python takes the last value and accepts",
         "dup_key_v_bad_then_good" to "duplicate key: Kotlin rejects as bad_json, Python takes the last value and accepts",
 
-        // 3. Binary header id and timestamp ranges: Kotlin only refuses a negative ts and never checks id; spec section 5 and Python want id 1..2^32-1 and ts 0..2^53-1. KOTLIN LOOSER.
-        "bin_id_0" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
-        "bin_id_2p32_via_wrap" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
-        "bin_ts_4611686018427387904" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
-        "bin_ts_9007199254740992" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
-        "bin_ts_9007199254740993" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
-        "bin_ts_9223372036854775807" to "binary header: Kotlin accepts an id of 0 or a ts above 2^53-1 that Python refuses with bad_binary",
-
         // 4. Kotlin does not check payloads against the schema (only auth.mac, error.code/fatal, echo, command, speak_local (P0-07), hello role/session_id/nonce/versions). KOTLIN LOOSER: field types, ranges, control characters and lengths in ack, error, hello, audio_out, echo that Python refuses as bad_payload reach the handlers.
         "ack_brain_payload_empty" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
         "ack_brain_payload_ok_result_list" to "payload not schema-checked: Kotlin accepts a payload Python refuses with bad_payload",
@@ -155,18 +147,7 @@ class HostileCorpusTest {
     )
 
     /** case id -> reason: Kotlin THROWS (not a documented rejection). Bigger finding than a verdict mismatch. */
-    private val knownThrows: Map<String, String> = mapOf<String, String>(
-        // validateFromBrain does `type.toString()` on the platform type Any! returned by JSONObject.opt; a MISSING "type" makes that call NPE
-        // instead of throwing ProtocolException(unknown_type). The raw_* frames additionally reach it only because org.json is lenient (comments, single
-        // quotes, trailing comma, trailing text, unquoted keys parse as an object without a type). BrainLink.onText catches only ProtocolException.
-        "mut11_speak_local_brain_del_type" to "NPE in validateFromBrain on a frame with no type (Python: reject)",
-        "raw_comment" to "NPE in validateFromBrain on a frame with no type (Python: reject)",
-        "raw_single_quotes" to "NPE in validateFromBrain on a frame with no type (Python: reject)",
-        "raw_trailing_comma" to "NPE in validateFromBrain on a frame with no type (Python: reject)",
-        "raw_trailing_garbage" to "NPE in validateFromBrain on a frame with no type (Python: reject)",
-        "raw_trailing_garbage_brain" to "NPE in validateFromBrain on a frame with no type (Python: reject)",
-        "raw_unquoted_key" to "NPE in validateFromBrain on a frame with no type (Python: reject)",
-    )
+    private val knownThrows: Map<String, String> = mapOf()
 
     @Test
     fun corpusIsPresentAndBigEnough() {

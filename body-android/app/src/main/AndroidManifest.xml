@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- The link's notification (state and a Stop action). Requested when Connect is pressed. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.ar" android:required="false" />
 
     <!-- Android 11+: lets the app find the text-to-speech engine to bind to (speak_local, P0-07). -->

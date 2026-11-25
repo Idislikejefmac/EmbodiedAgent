@@ -49,9 +49,7 @@ def gen_invalid(g: Gen) -> list[Case]:
     for name, port in (("negative", -1), ("one_over_max", 65536), ("str", "8765"), ("none", None), ("float", 80.5), ("bool", True)):
         out.append(invalid(f"port_{name}", {"op": "ctor", "kwargs": {"token": TOKEN_PLACEHOLDER, "port": port}}, "N6"))
     for name, v in (("zero", 0), ("negative", -1), ("nan", float("nan")), ("inf", float("inf")), ("str", "5"), ("none", None)):
-        out.append(invalid(f"status_timeout_{name}", {"op": "ctor", "kwargs": {"token": TOKEN_PLACEHOLDER, "status_timeout_s": v}}, "N6",
-                           known_defect="X01B-06: LinkBody(status_timeout_s=) is not validated (0, negative, NaN, infinity, a string or None are accepted; "
-                                        "status() would then time out at once or never, or raise TypeError)"))
+        out.append(invalid(f"status_timeout_{name}", {"op": "ctor", "kwargs": {"token": TOKEN_PLACEHOLDER, "status_timeout_s": v}}, "N6"))
     for name, v in (("int", 7), ("none", None), ("empty", ""), ("slash", "../x"), ("long", "a" * 65), ("newline", "a\nb")):
         out.append(invalid(f"replay_session_{name}", {"op": "replay_ctor", "id": v}, "N5"))
     out.append(invalid("phone_unknown_option", {"op": "ctor", "kind": "phone", "kwargs": {"token": TOKEN_PLACEHOLDER, "shell": "x"}}, "N4"))

@@ -15,7 +15,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Dev only (DEC-DEV-DEPS). A hash-pinned dev lockfile is a later task (H-03); until then these are lower bounds.
+# Dev only (DEC-DEV-DEPS). The exact versions and hashes of everything installed are in requirements.lock (H-03),
+# written by tools/make_lockfile.py; rerun it after changing a dependency.
 dev = ["pytest>=8", "mypy>=1.13", "hypothesis>=6.170"]
 # Local speech to text (card P2-04, docs/stt.md): installed 15 Nov 2026 on Python 3.13 / Windows; pinned to what was tested.
 # No torch. Models are fetched once by tools/fetch_stt_model.py, not by pip. The GPU libraries are the optional extra stt-gpu.

@@ -23,12 +23,13 @@ from __future__ import annotations
 import base64
 import math
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from ..limits import (AUDIO_CHANNELS_MAX, AUDIO_SAMPLE_RATE_HZ_MAX, AUDIO_SAMPLE_RATE_HZ_MIN, MAX_BINARY_BYTES,
-                      QUAT_NORM_TOL, WIRE_IMAGE_EDGE_MAX_PX)
+from ..limits import (AUDIO_CHANNELS_MAX, AUDIO_SAMPLE_RATE_HZ_MAX, AUDIO_SAMPLE_RATE_HZ_MIN, DISPLAY_NAME_MAX_CHARS,
+                      MAX_BINARY_BYTES, QUAT_NORM_TOL, WIRE_IMAGE_EDGE_MAX_PX)
 
 # Identifiers that recorders may use as file names (same rule as protocol/v0.md section 2).
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}(?!\n)$")
@@ -354,28 +355,86 @@ class AudioChunk:
 # ---- speech and identity (produced by the brain's own pipeline, not by a body) -------------------------
 
 
+class PersonName(str):
+    """A person's display name that has passed the gate (H-16): NFKC-normalised, at most DISPLAY_NAME_MAX_CHARS,
+    letters (with their combining marks), spaces, apostrophes, hyphens and periods, at least one letter and no
+    space at either end. A name reaches the model next to identity labels, so brackets, bars, colons, digits,
+    newlines and control or direction characters can never be part of one."""
+
+    __slots__ = ()
+    _PUNCTUATION = " '’-."  # U+2019 is the apostrophe phone keyboards type
+
+    def __new__(cls, value: object) -> PersonName:
+        if not isinstance(value, str):
+            raise ValueError(f"a name must be a string, not {type(value).__name__}")
+        # The first bound keeps normalisation cheap on a huge string; the second is the rule.
+        text = unicodedata.normalize("NFKC", value) if len(value) <= 4 * DISPLAY_NAME_MAX_CHARS else value
+        if not 0 < len(text) <= DISPLAY_NAME_MAX_CHARS:
+            raise ValueError(f"a name must be 1 to {DISPLAY_NAME_MAX_CHARS} characters, got {len(text)}")
+        kinds = [unicodedata.category(c)[0] for c in text]
+        if any(k not in "LM" and c not in cls._PUNCTUATION for c, k in zip(text, kinds, strict=True)):
+            raise ValueError(f"a name may hold letters, spaces, apostrophes, hyphens and periods, got {text!r:.60}")
+        if "L" not in kinds or kinds[0] == "M" or text != text.strip():
+            raise ValueError(f"a name needs a letter and no space or loose mark at its edges, got {text!r:.60}")
+        return super().__new__(cls, text)
+
+
+class SpeakerStatus(StrEnum):
+    """How the speaker result for one utterance was reached (docs/testing/30)."""
+
+    IDENTIFIED = "identified"
+    TOO_SHORT = "too_short"
+    INHERITED = "inherited"
+    PENDING = "pending"
+    MULTIPLE = "multiple"
+    UNAVAILABLE = "unavailable"
+    SELF = "self"  # the agent's own voice: discarded
+
+
+SPEAKER_EVIDENCE = frozenset({"voice", "face"})
+
+
 @dataclass(frozen=True)
 class Speaker:
-    """Who the identity layer thinks is speaking. Claude receives this as data and never produces it."""
+    """Who the identity layer thinks is speaking. Claude receives this as data and never produces it.
+
+    `status` defaults to UNAVAILABLE and `evidence` to nothing, so a result that does not say how it was
+    reached never reads as an identification.
+    """
 
     person_id: str | None
-    name: str | None
+    name: str | None  # stored as a PersonName
     band: ConfidenceBand
-    voice_score: float | None = None
+    voice_score: float | None = None  # a similarity, -1 to 1
+    status: SpeakerStatus = SpeakerStatus.UNAVAILABLE
+    evidence: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if self.person_id is not None:
             _ident(self.person_id, "person_id")
+        if self.name is not None:
+            object.__setattr__(self, "name", PersonName(self.name))
         object.__setattr__(self, "band", ConfidenceBand(self.band))
-        object.__setattr__(self, "voice_score", _float(self.voice_score, "voice_score", optional=True))
+        score = _float(self.voice_score, "voice_score", optional=True)
+        if score is not None and not -1.0 <= score <= 1.0:
+            raise ValueError(f"voice_score must be from -1 to 1, got {score!r:.40}")
+        object.__setattr__(self, "voice_score", score)
+        object.__setattr__(self, "status", SpeakerStatus(self.status))
+        evidence = self.evidence
+        if not isinstance(evidence, (set, frozenset, list, tuple)) or not all(
+                isinstance(e, str) and e in SPEAKER_EVIDENCE for e in evidence):
+            raise ValueError(f"evidence must be a set within {sorted(SPEAKER_EVIDENCE)}, got {evidence!r:.60}")
+        object.__setattr__(self, "evidence", frozenset(evidence))
 
     def to_json(self) -> dict[str, Any]:
-        return {"person_id": self.person_id, "name": self.name, "band": self.band.value,
-                "voice_score": self.voice_score}
+        return {"person_id": self.person_id, "name": None if self.name is None else str(self.name),
+                "band": self.band.value, "voice_score": self.voice_score, "status": self.status.value,
+                "evidence": sorted(self.evidence)}
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Speaker:
-        return cls(d.get("person_id"), d.get("name"), d["band"], d.get("voice_score"))
+        return cls(d.get("person_id"), d.get("name"), d["band"], d.get("voice_score"),
+                   d.get("status", SpeakerStatus.UNAVAILABLE), d.get("evidence", ()))
 
 
 @dataclass(frozen=True)

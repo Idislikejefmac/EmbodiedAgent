@@ -1,5 +1,7 @@
 # Test and Risk Design: Phase 0 Foundations and the Chaos Harness (P0-01 to P0-07, X-01)
 
+> Design written 13 Nov 2026 against commit `bc7610c`. What it calls existing or planned may be out of date: see [`../STATUS.md`](../STATUS.md) and check the source.
+
 Status: draft v2, corrected 13 Nov 2026 after the independent review (`REVIEW.md`), under `CONVENTIONS.md` (rules C1 to C12). Applies `00-overview-and-standards.md` (called "doc 00" below; its Appendix A is the canonical limits table and it holds the redesigned E1) to cards P0-01, P0-02, P0-03, P0-04, P0-05, P0-06, P0-07 and X-01. Section numbers 1 to 12 inside each card follow doc 00 section 8.
 
 **Corrections applied (13 Nov 2026)**

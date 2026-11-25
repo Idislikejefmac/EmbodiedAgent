@@ -23,7 +23,7 @@ effect or secret in output is a failure.
 
 ## Run it
 
-    python -m brain chaos                      # quick, deterministic, about 30 s (also runs inside pytest)
+    python -m brain chaos                      # quick, deterministic, 30 s budget (also runs inside pytest)
     python -m brain chaos --full               # 5 seeds, every boundary, memory traced
     python -m brain chaos --check-manifest     # drift between the code's entry points and the manifest
     python -m brain chaos --list               # experiments and case counts
@@ -41,7 +41,7 @@ separately. A stale exemption fails the run.
 | Experiments (seeded, one per area) | `tools/chaos/cases/*.py` | the boundary matrix gives min, max, one over, zero, empty, null, wrong type, wrong encoding and oversize values for free |
 | CLI end to end | `tests/test_cli_end_to_end.py` | every command in a child process with hostile argv; exit 0, 1 or 2 only, no traceback, bounded time, nothing outside the sandbox. A NUL character or non-UTF-16 text cannot be put in a Windows command line at all |
 | Stateful properties (Hypothesis) | `tests/test_stateful_properties.py` | Body lifecycle (SimBody, LinkBody), the handshake state machine against an unauthenticated peer, random tool-registry calls with an audit hook. Quick mode is derandomised (`tests/conftest.py` profiles) |
-| Shared hostile corpus | `protocol/corpus/v0-hostile.json`, made by `tools/gen_hostile_corpus.py` (`--check` in CI) | the Python validator decides accept or reject; `HostileCorpusTest.kt` asserts the phone's parsers agree and never throw. Every disagreement is a named, strict expected failure in that test |
+| Shared hostile corpus | `protocol/corpus/v0-hostile.json`, made by `tools/gen_hostile_corpus.py` (`--check` fails if stale; there is no CI, so run it by hand) | the Python validator decides accept or reject; `HostileCorpusTest.kt` asserts the phone's parsers agree and never throw. Every disagreement is a named, strict expected failure in that test |
 | Lints | `tools/lint.py`, `tests/lint_baseline.toml`, `tests/test_lint.py` | E1a and E1b, below |
 | Traceability | `tools/trace.py check`, `tests/trace_map.toml` | maps tests to T- and R- ids |
 

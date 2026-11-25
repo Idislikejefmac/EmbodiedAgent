@@ -14,7 +14,7 @@ A profile is one person's own copy of the brain's settings and data, so a second
 
 No `--profile` means exactly what it meant before profiles existed. A profile never falls back to the default's files: if something is missing in the profile, the brain says so and stops (exit code 2).
 
-`--profile NAME` is accepted by every command (`info`, `serve`, `probe`, `chat`, `watch`, `health`, `demo-trace`, `body-check`, `pair`), before or after the command. It is not used by `chaos` (the harness runs in its own sandbox) or by `tools/migrate.py` (which takes explicit paths; to move a profile, copy its folder by hand). `serve --supervised` passes it on to the child it restarts.
+`--profile NAME` is accepted by every command (`info`, `serve`, `probe`, `chat`, `watch`, `health`, `demo-trace`, `body-check`, `pair`, `stt-check`), before or after the command. It is not used by `chaos` (the harness runs in its own sandbox) or by `tools/migrate.py` (which takes explicit paths; to move a profile, copy its folder by hand). `serve --supervised` passes it on to the child it restarts.
 
 `profiles/` is git-ignored (it holds a `.env`), so nothing in it can be committed by accident; a test checks it.
 

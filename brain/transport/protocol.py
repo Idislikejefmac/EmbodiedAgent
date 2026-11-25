@@ -167,7 +167,10 @@ class ProtocolError(Exception):
 
 @lru_cache(maxsize=1)
 def schema() -> dict[str, Any]:
-    loaded: dict[str, Any] = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        loaded: dict[str, Any] = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    except RecursionError:
+        raise ValueError("the protocol schema file is nested too deeply") from None
     return loaded
 
 

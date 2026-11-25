@@ -2,6 +2,8 @@
 
 Nov 13, 2026 · @Jeff
 
+Current state (what is built, what is next, what is waiting): `docs/STATUS.md`. This plan is not updated as cards are built.
+
 ## Executive summary
 
 Build the agent's mind and senses on the phone first, body-agnostic, and spend nothing on robot hardware until Gate G10 says the phone trial earned it. The plan is 53 cards (44 phone-path, 9 robot-outline) with 12 STOP AND TEST gates, never more than 5 cards apart.

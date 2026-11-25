@@ -391,7 +391,11 @@ class Catalogue:
 
 def load_catalogue() -> Catalogue:
     """Read the allowlist that ships with the code. Done once, when the registry is built."""
-    return Catalogue.from_json(json.loads(CATALOGUE_PATH.read_text(encoding="utf-8")))
+    try:
+        raw = json.loads(CATALOGUE_PATH.read_text(encoding="utf-8"))
+    except RecursionError:
+        raise ValueError("the tool catalogue file is nested too deeply") from None
+    return Catalogue.from_json(raw)
 
 
 def _strip_private(schema: Any) -> Any:

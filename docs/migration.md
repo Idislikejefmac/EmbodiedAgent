@@ -12,6 +12,8 @@ Before relying on an archive, check it without unpacking: `python tools\migrate.
 
 You choose a passphrase. The archive holds `data/`, `.env` and `config.toml`, encrypted with a key derived from the passphrase (scrypt, AES-256-GCM). Store the passphrase somewhere safe: without it the archive is unreadable.
 
+**Not in the archive:** `profiles/` (each person's config, key and data; copy those folders by hand if they should move, see `docs/profiles.md`) and the link tokens under `%LOCALAPPDATA%\EmbodiedAgent` (do not copy them; pair the phone again with `python -m brain pair`). The speech models are inside `data/`, so they are archived; the `stt` and `stt-gpu` extras need installing again.
+
 The code and docs are already in the Git repository (`https://github.com/Idislikejefmac/EmbodiedAgent`), so they come across with a clone.
 
 ## 2. Restore (on the new machine)
@@ -36,7 +38,8 @@ From card P3-01 the registry key lives in the Windows credential store of the ma
 
 - [ ] Restore succeeded on the new machine, and the brain's tests and a startup check pass there.
 - [ ] A second copy of the archive exists on separate storage.
-- [ ] Delete `data/`, `.env` and the whole repo folder from this laptop.
+- [ ] Delete `data/`, `.env`, `profiles/` and the whole repo folder from this laptop.
+- [ ] Delete `%LOCALAPPDATA%\EmbodiedAgent` (link tokens, including every profile's).
 - [ ] Empty the Recycle Bin.
 - [ ] Overwrite the freed space: `cipher /w:C:\jeffsource` (takes a while). On an SSD this is not a reliable wipe, because the drive remaps blocks. The real protection is BitLocker disk encryption plus the company's own device wipe on return, so treat this step as a courtesy and rely on the next item for anything secret.
 - [ ] Remove the registry key from the Windows credential store (Control Panel, Credential Manager, Windows Credentials) once the P3-01 key exists.

@@ -122,7 +122,8 @@ object Protocol {
         }
         val type = o.opt("type")
         if (type !is String || type !in TYPES) {
-            throw ProtocolException("unknown_type", "unknown type ${type.toString().take(64)}", replyTo = id)
+            // opt() returns null for a missing field: "$type" prints "null" where type.toString() would throw.
+            throw ProtocolException("unknown_type", "unknown type ${"$type".take(64)}", replyTo = id)
         }
         val unknown = o.keys().asSequence().filter { it !in ENVELOPE }.toList()
         if (unknown.isNotEmpty()) {

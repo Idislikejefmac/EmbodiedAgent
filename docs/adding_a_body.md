@@ -52,7 +52,7 @@ Helpers already in `Body`: `supports(cap)`, `require(cap, not_built=None)`, and 
 | Body | Capabilities | Notes |
 | --- | --- | --- |
 | `SimBody` (`sim.py`) | all six | Walks a 2 m square; pictures and WAV files from folders or built in; its clock is deliberately offset from the brain's; `set_link(False)` drops its link |
-| `PhoneBody` (`phone.py`, on `LinkBody`) | none yet | `status` and `events` work over protocol v0; the gated methods arrive with cards P0-07 (speech), P1-01/P1-02 (stills), P2-01/P2-02 (audio), P4-01 (pose). It will never have `NAVIGATE` |
+| `PhoneBody` (`phone.py`, on `LinkBody`) | `speak_text`, when the phone offers `speak_local` | `status` and `events` work over protocol v0; the other gated methods arrive with cards P1-01/P1-02 (stills), P2-01/P2-02 (audio), P4-01 (pose). It will never have `NAVIGATE` |
 | `ReplayBody` (`replay.py`) | none | Stub; card P1-03 |
 
 Try one from the command line: `python -m brain body-check --body sim` (or `--body phone`).

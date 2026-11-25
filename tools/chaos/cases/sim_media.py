@@ -41,21 +41,6 @@ WAVS: dict[str, bytes] = {
 }
 
 
-WAV_DEFECT = ("X01B-01: read_wav leaks EOFError or wave.Error for an empty, truncated or non-WAV file and accepts a rate "
-              "of 0 or 9 channels, so SimBody.start fails with a library error (not ValueError) on a bad media file")
-
-
-def leaks(data: bytes, strict: bool = True) -> str | None:
-    """The recorded defect (X01B-01) for this file content, found by asking read_wav itself."""
-    try:
-        rate, ch, pcm = A.read_wav(data)
-    except ValueError:
-        return None
-    except Exception:  # broad-except: this IS the defect probe, any other exception type is the finding
-        return WAV_DEFECT
-    return WAV_DEFECT if strict and (rate <= 0 or not 1 <= ch <= 2 or len(pcm) % (2 * ch)) else None
-
-
 QUICK_START_WAVS = {"empty", "garbage", "eight_bit", "rate_zero", "channels_many", "truncated_data"}  # full mode runs every file
 
 
@@ -71,10 +56,8 @@ def gen_valid(g: Gen) -> list[Case]:
 
 
 def gen_invalid(g: Gen) -> list[Case]:
-    out = [invalid(f"read_wav_{name}", {"op": "read_wav", "data": data}, "N5" if name.startswith("not_") else "N4",
-                   known_defect=leaks(data)) for name, data in WAVS.items()]
-    out += [invalid(f"start_wav_{name}", {"op": "start", "dirs": "bad_wav", "wav": data}, "N5",
-                    known_defect=leaks(data, strict=False)) for name, data in WAVS.items() if name not in ("data_size_huge",)]
+    out = [invalid(f"read_wav_{name}", {"op": "read_wav", "data": data}, "N5" if name.startswith("not_") else "N4") for name, data in WAVS.items()]
+    out += [invalid(f"start_wav_{name}", {"op": "start", "dirs": "bad_wav", "wav": data}, "N5") for name, data in WAVS.items() if name not in ("data_size_huge",)]
     out += [invalid("start_png_corrupt", {"op": "start_then_capture", "png": b"\x89PNG\r\n\x1a\n" + b"\x00" * 10}, "N4"),
             invalid("start_png_empty", {"op": "start_then_capture", "png": b""}, "N3"),
             invalid("start_png_is_text", {"op": "start_then_capture", "png": b"not an image"}, "N5"),
@@ -89,9 +72,7 @@ def gen_invalid(g: Gen) -> list[Case]:
                        ("channels_over_uint16", (b"\x00\x00", 16000, 65536)), ("pcm_is_str", ("ab", 16000, 1)),
                        ("pcm_is_none", (None, 16000, 1)), ("rate_is_float", (b"\x00\x00", 16000.5, 1)),
                        ("rate_is_str", (b"\x00\x00", "16000", 1)), ("channels_is_none", (b"\x00\x00", 16000, None))):
-        out.append(invalid(f"wav_bytes_{name}", {"op": "wav_bytes", "args": args}, "N6" if "rate" in name or "channels" in name else "N1",
-                           known_defect="X01B-03: wav_bytes accepts a float sample rate and silently truncates it (16000.5 Hz is written as 16000)"
-                           if name == "rate_is_float" else None))
+        out.append(invalid(f"wav_bytes_{name}", {"op": "wav_bytes", "args": args}, "N6" if "rate" in name or "channels" in name else "N1"))
     out.append(invalid("write_media_to_a_file", {"op": "write_media", "where": "is_file"}, "N1"))
     return out
 
@@ -104,12 +85,12 @@ def gen_hostile(g: Gen) -> list[Case]:
            hostile("write_media_unicode_name", {"op": "write_media", "where": "unicode"}, "N7")]
     for i in range(g.n(6, 100)):  # random bytes as a WAV file
         data = g.rng.randbytes(g.rng.choice([0, 12, 44, 45, 200]))
-        out.append(hostile(f"read_wav_random_{i}", {"op": "read_wav", "data": data}, "N7", known_defect=leaks(data)))
+        out.append(hostile(f"read_wav_random_{i}", {"op": "read_wav", "data": data}, "N7"))
     for i in range(g.n(6, 100)):  # a valid WAV with random bytes flipped
         b = bytearray(GOOD)
         for _ in range(g.rng.randint(1, 4)):
             b[g.rng.randrange(44)] = g.rng.randrange(256)
-        out.append(hostile(f"read_wav_mutated_{i}", {"op": "read_wav", "data": bytes(b)}, "N7", known_defect=leaks(bytes(b))))
+        out.append(hostile(f"read_wav_mutated_{i}", {"op": "read_wav", "data": bytes(b)}, "N7"))
     return out
 
 

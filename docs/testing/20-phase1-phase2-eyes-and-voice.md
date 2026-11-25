@@ -1,5 +1,7 @@
 # Test and Risk Design: Phase 1 (eyes and plumbing) and Phase 2 (voice)
 
+> Design written 13 Nov 2026 against commit `bc7610c`. What it calls existing or planned may be out of date: see [`../STATUS.md`](../STATUS.md) and check the source.
+
 ## Corrections applied (13 Nov 2026)
 
 Applied from the independent review (`REVIEW.md`), `CONVENTIONS.md` (C1 to C12) and the cross-document items in doc 50:

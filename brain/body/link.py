@@ -22,7 +22,7 @@ from .. import obs
 from ..logsafe import short_items, short_repr
 from ..transport.clock import ClockOffsetEstimator
 from ..transport.link import Link, LinkClosed, Received, RequestError
-from ..transport.protocol import now_us
+from ..transport.protocol import check_timeout, now_us
 from ..transport.server import DIAGNOSTIC_EVENTS, BrainServer
 from .base import Body, BodyError, BodyTimeout, BodyUnavailable
 from .streams import BodyStream, Fanout
@@ -42,11 +42,11 @@ def _number(value: object, low: float, high: float) -> float | None:
 class LinkBody(Body):
     def __init__(self, *, token: bytes, host: str = "127.0.0.1", port: int = 8765, name: str = "link",
                  status_timeout_s: float = 5.0, **server_options: Any):
+        self.status_timeout_s = check_timeout("status_timeout_s", status_timeout_s)
         self._name = name
         self._server = BrainServer(host, port, token=token, on_message=self._on_message,
                                    on_connect=self._on_connect, on_disconnect=self._on_disconnect,
                                    **server_options)
-        self.status_timeout_s = status_timeout_s
         self._started = False
         self._link: Link | None = None
         self._clock: ClockOffsetEstimator | None = None

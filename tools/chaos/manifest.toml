@@ -315,7 +315,6 @@ entry = [
   { id = "env_var.HTTP_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
   { id = "env_var.LOCALAPPDATA", kind = "env_var", card = "P0-04", boundary = "B11" },
   { id = "env_var.NO_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },
-  { id = "env_var.SystemRoot", kind = "env_var", card = "P0-04", boundary = "B11" },
   { id = "env_var.USERDOMAIN", kind = "env_var", card = "P0-04", boundary = "B11" },
   { id = "env_var.USERNAME", kind = "env_var", card = "P0-04", boundary = "B11" },
   { id = "env_var.WSS_PROXY", kind = "env_var", card = "P0-04", boundary = "B11" },

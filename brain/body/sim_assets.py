@@ -15,6 +15,8 @@ import zlib
 from collections.abc import Callable
 from pathlib import Path
 
+from ..limits import AUDIO_CHANNELS_MAX, AUDIO_SAMPLE_RATE_HZ_MAX, AUDIO_SAMPLE_RATE_HZ_MIN
+
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _CHANNELS = {0: 1, 2: 3, 6: 4}  # PNG colour type -> channels (grey, RGB, RGBA)
 
@@ -134,7 +136,20 @@ def image_size(data: bytes) -> tuple[str, int, int]:
 # ---- WAV ---------------------------------------------------------------------------------------------
 
 
+def _check_pcm_format(sample_rate_hz: object, channels: object) -> None:
+    """The ranges AudioChunk enforces (H-34): a file outside them could be written or read but never streamed."""
+    for name, value, low, high in (("sample rate", sample_rate_hz, AUDIO_SAMPLE_RATE_HZ_MIN, AUDIO_SAMPLE_RATE_HZ_MAX),
+                                   ("channel count", channels, 1, AUDIO_CHANNELS_MAX)):
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            raise ValueError(f"WAV {name} must be a whole number from {low} to {high}, not {str(value)[:30]}")
+
+
 def wav_bytes(pcm_s16le: bytes, sample_rate_hz: int = 16000, channels: int = 1) -> bytes:
+    _check_pcm_format(sample_rate_hz, channels)
+    if not isinstance(pcm_s16le, (bytes, bytearray, memoryview)):
+        raise TypeError(f"PCM data must be bytes, not {type(pcm_s16le).__name__}")
+    if len(pcm_s16le) % (2 * channels):
+        raise ValueError("PCM data must hold whole 16-bit frames")
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(channels)
@@ -145,11 +160,18 @@ def wav_bytes(pcm_s16le: bytes, sample_rate_hz: int = 16000, channels: int = 1) 
 
 
 def read_wav(data: bytes) -> tuple[int, int, bytes]:
-    """(sample_rate_hz, channels, pcm_s16le bytes) of a 16-bit PCM WAV."""
-    with wave.open(io.BytesIO(data), "rb") as w:
-        if w.getsampwidth() != 2 or w.getcomptype() != "NONE":
-            raise ValueError("only 16-bit PCM WAV files are supported")
-        return w.getframerate(), w.getnchannels(), w.readframes(w.getnframes())
+    """(sample_rate_hz, channels, pcm_s16le bytes) of a 16-bit PCM WAV. Raises ValueError for anything else."""
+    try:
+        with wave.open(io.BytesIO(data), "rb") as w:
+            if w.getsampwidth() != 2 or w.getcomptype() != "NONE":
+                raise ValueError("only 16-bit PCM WAV files are supported")
+            rate, channels, pcm = w.getframerate(), w.getnchannels(), w.readframes(w.getnframes())
+    except (wave.Error, EOFError, RuntimeError, struct.error) as e:  # what `wave` raises on a damaged file
+        raise ValueError(f"not a readable WAV file ({type(e).__name__}: {str(e)[:100]})") from None
+    _check_pcm_format(rate, channels)
+    if len(pcm) % (2 * channels):
+        raise ValueError("WAV data ends in the middle of a frame")
+    return rate, channels, pcm
 
 
 def tone(freq_hz: float, seconds: float, sample_rate_hz: int = 16000, amplitude: float = 0.3) -> bytes:

@@ -51,7 +51,8 @@ class BinaryFrame(val type: String, val id: Long, val ts: Long, val data: ByteAr
             val length = buf.getInt().toLong() and 0xFFFFFFFFL
             if (v != VERSION) throw FrameException("unsupported_version", "binary frame v=$v")
             val type = TYPE_NAMES[code] ?: throw FrameException("bad_binary", "unknown binary type code $code")
-            if (ts < 0) throw FrameException("bad_binary", "negative timestamp $ts")
+            if (id !in 1..MAX_ID) throw FrameException("bad_binary", "id $id out of range")
+            if (ts !in 0..Protocol.MAX_TS) throw FrameException("bad_binary", "timestamp $ts out of range")
             if (length > MAX_DATA) throw FrameException("too_large", "binary length $length over 8 MiB")
             if (length != (frame.size - HEADER_SIZE).toLong()) {
                 throw FrameException("bad_binary", "header length $length but ${frame.size - HEADER_SIZE} data bytes")

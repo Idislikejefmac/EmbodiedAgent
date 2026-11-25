@@ -1,5 +1,7 @@
 # Test and Risk Design: Phase 4, Spatial Understanding and Memory (P4-01 to P4-08)
 
+> Design written 13 Nov 2026 against commit `bc7610c`. What it calls existing or planned may be out of date: see [`../STATUS.md`](../STATUS.md) and check the source.
+
 Status: Planned, draft v2 (correction pass), 13 Nov 2026. Owner: Jeff. Applies `00-overview-and-standards.md` (the five promises P1 to P5, boundaries B1 to B21, rules S1 to S12 and K1 to K7, checks E1 to E11, negative classes N1 to N21, section 8 card structure) and `CONVENTIONS.md` (C1 to C12, binding) to cards P4-01 to P4-08 of `EmbodiedAgent-Plan-and-Implementation-Order.md`.
 
 ## Corrections applied (13 Nov 2026)

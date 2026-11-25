@@ -1,4 +1,4 @@
-# Chaos and boundary test harness (card X-01, stage 1a)
+# Chaos and boundary test harness (card X-01, stages 1a and 1b)
 
 The harness proves two things about every entry point the system exposes: it does what it should for
 valid input, and for invalid, hostile or unlucky input it never crashes, never leaves a traceback,
@@ -6,7 +6,7 @@ never hangs, never runs away with resources, never does anything it must not, an
 
 ## Run it
 
-    python -m brain chaos                    # quick: deterministic, about 15 s (also runs inside pytest)
+    python -m brain chaos                    # quick: deterministic, 30 s budget (also runs inside pytest)
     python -m brain chaos --full             # gates and major features: 5 seeds, every boundary, memory traced
     python -m brain chaos --seed 7           # another seed (0 to 2^63-1)
     python -m brain chaos --only P0-06.registry.call/invalid/12    # one case, as printed in a failure

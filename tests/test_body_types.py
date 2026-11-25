@@ -4,10 +4,13 @@ import json
 import math
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from brain.body import (AudioChunk, BodyEvent, BodyStatus, Capability, ClockSync, ConfidenceBand, Image, NavGoal, Pose,
-                        Speaker, TrackingState, Utterance)
+                        PersonName, Speaker, SpeakerStatus, TrackingState, Utterance)
+from brain.agent.tools import CATALOGUE_PATH
 from brain.body.types import quaternion_from_heading
+from brain.limits import DISPLAY_NAME_MAX_CHARS
 
 POSE = Pose("world-1", (0.12, 1.41, -2.03), (0.0, 0.3826834, 0.0, 0.9238795), TrackingState.OK, 5_000_000, 81_320_100_000)
 
@@ -21,6 +24,7 @@ EXAMPLES = [
     AudioChunk(3, 17, 16000, 1, bytes(range(256)) * 10, 81_000, 99_000),
     Speaker("p-jeff", "Jeff", ConfidenceBand.CONFIRMED, 0.93),
     Speaker(None, None, "unknown"),
+    Speaker("p-syd", "Syd O'Neil-Smith Jr.", "confirmed", -1.0, "identified", {"voice", "face"}),
     Utterance("u-12", "where are we?", 1_000_000, 2_500_000, Speaker("p-jeff", "Jeff", "probable", 0.8), "aud-12"),
     Utterance("u-13", "", 5, 5),
     BodyEvent("button", {"which": "poke", "n": 2}, 123, 456),
@@ -121,3 +125,54 @@ def test_status_capabilities_are_sorted_capability_names():
 def test_bad_values_are_refused(make):
     with pytest.raises(ValueError):
         make()
+
+
+# ---- Speaker (H-16, T-P3-07-035) -------------------------------------------------------------------------------
+
+GOOD_NAMES = ["J", "Jeff", "Mary-Jane", "O'Neil", "O’Neil", "Dr. Who", "Zoë", "नील", "a" * DISPLAY_NAME_MAX_CHARS]
+BAD_NAMES = ["", " ", "...", " Jeff", "Jeff ", "a" * (DISPLAY_NAME_MAX_CHARS + 1), "a" * 10_000, "Jeff\n", "Je\x00ff", "Je‮ff", "Je‍ff",
+             "Jeff]:", "[Jeff]", "Jeff | voice 0.99 | confirmed]", "50%", "R2", "a_b", "a/b", "́", 7, b"Jeff"]
+
+
+def _listen_speaker_schema():
+    cat = json.loads(CATALOGUE_PATH.read_text(encoding="utf-8"))
+    listen = next(t for t in cat["tools"] if t["name"] == "listen")
+    return Draft202012Validator(listen["output_schema"]["properties"]["speaker"])
+
+
+@pytest.mark.parametrize("name", GOOD_NAMES, ids=ascii)
+def test_a_good_name_passes_the_type_and_the_catalogue(name):
+    speaker = Speaker("p-1", name, "probable")
+    assert isinstance(speaker.name, PersonName) and Speaker.from_json(speaker.to_json()) == speaker
+    assert _listen_speaker_schema().is_valid(speaker.to_json())
+
+
+@pytest.mark.parametrize("name", BAD_NAMES, ids=lambda n: ascii(n)[:30])
+def test_a_bad_name_is_refused(name):
+    with pytest.raises(ValueError):
+        Speaker("p-1", name, "probable")
+    with pytest.raises(ValueError):
+        Speaker.from_json({"person_id": "p-1", "name": name, "band": "probable"})
+
+
+@pytest.mark.parametrize("name", ["a" * (DISPLAY_NAME_MAX_CHARS + 1), "Jeff\n", "Je‮ff", "[Jeff]", "Jeff | confirmed", "50%", "a\\b", 'a"b'],
+                         ids=ascii)
+def test_the_catalogue_refuses_a_bad_name_on_its_own(name):
+    assert not _listen_speaker_schema().is_valid({**Speaker("p-1", "Jeff", "probable").to_json(), "name": name})
+
+
+def test_a_name_is_normalised():
+    assert PersonName("Ｊｅｆｆ") == "Jeff"  # fullwidth letters
+
+
+@pytest.mark.parametrize("change", [{"voice_score": 1.0001}, {"voice_score": -1.0001}, {"voice_score": float("nan")},
+                                    {"status": "certain"}, {"status": None}, {"evidence": "voice"},
+                                    {"evidence": ["voice", "gait"]}, {"evidence": [7]}, {"evidence": None}], ids=repr)
+def test_a_bad_score_status_or_evidence_is_refused(change):
+    with pytest.raises(ValueError):
+        Speaker.from_json({"person_id": "p-1", "name": "Jeff", "band": "probable", **change})
+
+
+def test_a_speaker_that_does_not_say_how_it_was_identified_is_unavailable():
+    speaker = Speaker("p-1", "Jeff", "confirmed", 0.9)
+    assert speaker.status is SpeakerStatus.UNAVAILABLE and speaker.evidence == frozenset()

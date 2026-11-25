@@ -1,5 +1,7 @@
 # Test and Risk Design: Overview and Standards
 
+> Design written 13 Nov 2026 against commit `bc7610c`. What it calls existing or planned may be out of date: see [`../STATUS.md`](../STATUS.md) and check the source.
+
 Status: draft v2, 13 Nov 2026 (corrected after the independent review). Owner: Jeff. This is the foundation document. The per-feature documents (`10-` to `50-`) apply it to every card in `EmbodiedAgent-Plan-and-Implementation-Order.md`. Where this document and a card disagree, raise it; do not silently pick one. The binding conventions C1 to C12 (`CONVENTIONS.md`) are carried here as canonical text; where a sentence below and `CONVENTIONS.md` disagree, `CONVENTIONS.md` wins and this document is fixed.
 
 ## Corrections applied (13 Nov 2026)
