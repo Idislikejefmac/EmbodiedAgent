@@ -1,6 +1,7 @@
 # Where the project stands
 
-**Read this first.** Last updated 25 Nov 2026. Update it whenever a session ends with the state changed.
+The current state. [`../CLAUDE.md`](../CLAUDE.md) is the entry point and loads this file. Last updated 25 Nov 2026.
+Update it whenever a session ends with the state changed.
 
 ## Now
 

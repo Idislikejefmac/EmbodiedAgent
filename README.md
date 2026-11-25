@@ -2,7 +2,7 @@
 
 A trial of a Claude agent with a body: first an Android phone, later possibly a wheeled robot. The full plan is in `EmbodiedAgent-Plan-and-Implementation-Order.md`.
 
-**Starting a session? Read [`docs/STATUS.md`](docs/STATUS.md) first:** what is built, what is next and what is waiting on whom.
+**Starting a session? Start at [`CLAUDE.md`](CLAUDE.md):** roles, rules, context control and the document map. It loads [`docs/STATUS.md`](docs/STATUS.md): what is built, what is next and what is waiting on whom.
 
 ## Layout
 
