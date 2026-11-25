@@ -1,6 +1,6 @@
 # Where the project stands
 
-**Read this first.** Last updated 24 Nov 2026. Update it whenever a session ends with the state changed.
+**Read this first.** Last updated 25 Nov 2026. Update it whenever a session ends with the state changed.
 
 ## Now
 
@@ -8,20 +8,19 @@
   G1 hands-on test and chooses GO, ADJUST or NO-GO. The record and checklist: [`gates/G1.md`](gates/G1.md) (a draft).
 - **The 24 Nov work below is committed and pushed** to `main` (the commit after `0520566`). Commit and push only when
   Jeff asks.
-- **The full chaos run on the fixed code has not completed.** It was stopped because the laptop ran low on memory.
-  Run `python -m brain chaos --full` (about 16 minutes) only when Jeff asks, ideally after committing and with no
-  Android build running, then add the row to `gates/G1.md`.
+- **The full chaos run passed on `7fbd7ca`** (25 Nov: seeds 1 to 5, 23,615 of 23,615 pass, all invariants held, about
+  11 minutes), recorded in `gates/G1.md`. It stays valid while only documents change. Run
+  `python -m brain chaos --full` when Jeff asks, with no Android build running (low memory stopped an earlier run).
 - **The phone has an older app build.** The Android sources changed on 24 Nov; install the new debug APK before G1.
 
 ## Next, in order
 
-1. The full chaos run on the committed code, when Jeff asks.
-2. Jeff: G1 hands-on test (`gates/G1.md`). It needs decisions on paid calls (`[models] allow_live_calls`, false now)
+1. Jeff: G1 hands-on test (`gates/G1.md`). It needs decisions on paid calls (`[models] allow_live_calls`, false now)
    and DEC-109 (sign test with a simulated picture at G1, camera at G2; recommended).
-3. Before P1-01: decisions DEC-054 (image policies), DEC-016 (no separate image decoding process for v1), DEC-040 (who
+2. Before P1-01: decisions DEC-054 (image policies), DEC-016 (no separate image decoding process for v1), DEC-040 (who
    may turn quiet mode off; unlocks H-17). All three have recommendations in [`testing/DECISIONS.md`](testing/DECISIONS.md);
    **none is answered**. Also the media gate (docs/testing/50 section 4.D) is not built as far as a search shows.
-4. Then P1-01 to P1-05 (gate G2), as in the plan's implementation order.
+3. Then P1-01 to P1-05 (gate G2), as in the plan's implementation order.
 
 ## Built
 
@@ -63,6 +62,7 @@ mypy ran after the last code change.
 | Other hardening | H-15 (phone token in the Keystore) before P2-02; H-17 on DEC-040; H-35 before P4-08. List and older status: docs/testing/50 section 4.A |
 | Traceability | `tools/trace.py check` fails with 18 or 19 problems: risks without tests, and 9 mismatches between trace markers and docstrings in the P0-07 tests. Commit `0520566` shows the same 18. Run `tools/trace.py collect` first: `check` reuses `data/trace/collected.json` even when it is stale. The count varies because the owner of R-SYS-16 is a tie broken by hash order |
 | Quick chaos is slow | About 42 s against its 30 s budget on 24 Nov; cause not investigated |
+| Outdated text in code | `brain/obs/health.py` DEFAULTS says there is no speech output yet; the `brain/obs/state.py` docstring calls the spend counters placeholders. Fix with the next code change |
 | Real-vendor pytest | No record that `tests/test_real_vendor.py --run-real-vendor` has been run |
 | Step 0 scope | docs/testing/50 section 2.1 asks more of a gate than the plan; proposal in `gates/G1.md`, not agreed |
 | Company laptop | It will be returned: data must be moved off and securely deleted first (DEC-020, DEC-021 open). The migration tool leaves out `profiles/` (see [`migration.md`](migration.md)) |
